@@ -208,7 +208,6 @@ button.x, button.ghost {
   background: transparent;
 }
 .bt.wa { color: #25D366; border-color: #25D366; }
-.bt.cafe { color: #b45309; border-color: #d97706; }
 .f { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; }
 h2 { font-size: 1.05rem; margin: 0 0 10px; font-weight: 700; }
 label { display: block; font-size: 0.8125rem; font-weight: 500; color: var(--mut); margin: 10px 0 4px; letter-spacing: 0.01em; }
@@ -440,6 +439,30 @@ body::after {
 }
 body.sin-degradado::after { display: none; }
 body.teclado nav, body.teclado .fab, body.teclado::after { display: none; }
+#demo-capa { position: fixed; inset: 0; z-index: 9998; background: transparent; }
+#demo-frase { position: fixed; left: 12px; right: 12px; top: calc(12px + env(safe-area-inset-top, 0px)); z-index: 9999; padding: 12px 16px; border-radius: 14px; background: rgba(0,0,0,.82); color: #fff; font-size: 20px; font-weight: 700; text-align: center; opacity: 0; transition: opacity .35s; pointer-events: none; }
+#demo-frase.on { opacity: 1; }
+#demo-cuenta { position: fixed; inset: 0; z-index: 10000; background: rgba(0,0,0,.88); color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; text-align: center; padding: 24px; pointer-events: none; }
+#demo-cuenta .demo-num { font-size: 96px; font-weight: 800; line-height: 1; }
+#demo-cuenta .demo-aviso { font-size: 20px; font-weight: 700; }
+.demo-toque { position: fixed; z-index: 9999; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; border: 3px solid #fff; background: rgba(255,255,255,.35); box-shadow: 0 0 0 2px rgba(0,0,0,.25); pointer-events: none; animation: demoToque .7s ease-out forwards; }
+#demo-cursor { position: fixed; z-index: 9999; width: 2px; margin-left: 1px; border-radius: 1px; pointer-events: none; animation: demoParpadeo 1s steps(1) infinite; }
+#linea-manana.demo-resalte { background: var(--ac-soft); outline: 3px solid var(--ac); outline-offset: 4px; border-radius: 10px; font-size: 1.25em; transition: all .3s; }
+@keyframes demoParpadeo { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+@keyframes demoToque { from { transform: scale(.4); opacity: 1; } to { transform: scale(1.3); opacity: 0; } }
+
+/* ---- Diseño v9.9.14: más redondeado, anillo de progreso, iconos de color y gráficos ---- */
+:root { --radius: 22px; }
+.card { border-color: var(--bd); }
+.hero-fila { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 6px 0 8px; }
+.hero-card .bar { display: none; }
+.anillo { flex: none; position: relative; width: 92px; height: 92px; }
+.anillo svg { width: 92px; height: 92px; transform: rotate(-90deg); }
+.anillo b { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 0.95rem; }
+.kchip { display: inline-flex; flex: none; width: 34px; height: 34px; border-radius: 12px; align-items: center; justify-content: center; margin-right: 10px; font-style: normal; font-size: 1.1rem; background: color-mix(in srgb, var(--kc) 20%, transparent); }
+.k0 { --kc: #E8833A; } .k1 { --kc: #3B82C4; } .k2 { --kc: #3D9B6E; } .k3 { --kc: #B35BC4; } .k4 { --kc: #D9534F; } .k5 { --kc: #7C8A82; }
+.grafico { width: 100%; height: auto; display: block; }
+.fab { width: 64px; height: 64px; font-size: 2rem; box-shadow: 0 8px 24px rgba(0,0,0,0.28); }
 </style></head><body>
 <main id="m"></main>
 <nav><button data-t="plan">Plan</button><button data-t="hoy">Hoy</button><button data-t="dias">Días</button><button data-t="ajustes">Ajustes</button></nav>
@@ -506,6 +529,41 @@ function estadoInicial(hoy) {
   };
 }
 
+/* Modo demo: datos de ejemplo para grabar videos o sacar capturas sin mostrar la plata real.
+   Los datos reales se guardan aparte (CLAVE_REAL) y vuelven al salir del modo demo. */
+function estadoDemo(real) {
+  const hoy = hoyISO(), n = numeroDeDia(hoy), start = isoDeNumero(n - 11);
+  const D = {
+    demo: true, bienvenida: true, nombre: 'Martín',
+    sueldo: 620000, previo: 0, ingresos: [{ cat: 'Sueldo', a: 620000 }],
+    start, end: mesSiguiente(start),
+    items: [
+      { n: 'Alquiler', a: 180000, p: true }, { n: 'Luz', a: 25000, p: true }, { n: 'Internet', a: 20000, p: true },
+    ],
+    spent: [], recal: null,
+    metas: [{ id: 1, n: 'Vacaciones', t: 300000, g0: 60000, f: '' }],
+    ultimaCopia: Date.now(),
+  };
+  ['tema', 'color', 'pin', 'salt', 'pinApp'].forEach(k => { if (real[k] !== undefined) D[k] = real[k]; });
+  const gastos = [
+    [-11, 12500, 'Supermercado', 'Súper'], [-10, 13500, 'Cena con amigos', 'Salidas'],
+    [-9, 2500, 'SUBE', 'Transporte'], [-9, 9300, 'Almuerzo', 'Comida'],
+    [-8, 15200, 'Supermercado', 'Súper'], [-7, 8400, 'Delivery', 'Comida'], [-7, 3100, 'Kiosco', 'Otro'],
+    [-6, 7100, 'Farmacia', 'Salud'], [-6, 6000, 'Nafta', 'Transporte'],
+    [-5, 8800, 'Almuerzo', 'Comida'], [-5, 2900, 'Café', 'Comida'],
+    [-4, 14400, 'Supermercado', 'Súper'], [-3, 3000, 'SUBE', 'Transporte'], [-3, 8900, 'Panadería y almuerzo', 'Comida'],
+    [-2, 11200, 'Cine', 'Salidas'], [-1, 9400, 'Almuerzo y café', 'Comida'],
+  ];
+  gastos.forEach(([d, amt, note, cat], i) => D.spent.push({ id: Date.now() + i, date: isoDeNumero(n + d), amt, note, cat }));
+  return D;
+}
+
+/* Reparte el saldo entre las cuentas de ejemplo para que coincidan con lo que dice la app */
+function ajustarCuentasDemo() {
+  const saldo = Math.round(calcular(S, hoyISO()).saldo), banco = Math.round(saldo * 0.6), mp = Math.round(saldo * 0.3);
+  S.cuentas = [{ n: 'Banco', m: banco }, { n: 'Mercado Pago', m: mp }, { n: 'Efectivo', m: saldo - banco - mp }];
+}
+
 /* Todos los números del período para el día `hoy`.
    - Un gasto importante con fecha `d` y las recomposiciones se descuentan
      desde su fecha, repartidos entre los días que faltan.
@@ -513,10 +571,15 @@ function estadoInicial(hoy) {
      disponible, no del presupuesto de un día. */
 function calcular(S, hoy) {
   const total        = suma(S.items, montoDe);
-  const totalBase    = suma(S.items.filter(i => !i.d), montoDe);
+  /* Un aumento de monto en un gasto ya cargado (i.x = [{ amt, desde }]) se descuenta
+     desde su fecha, no desde el primer día del período. */
+  const aumentosDe   = i => i.x || [];
+  const montoBase    = i => montoDe(i) - suma(aumentosDe(i), x => +x.amt || 0);
+  const totalBase    = suma(S.items.filter(i => !i.d), montoBase);
   const porPagar     = suma(S.items.filter(i => !i.p), montoDe);
   const descuentos   = (S.ajustes || []).concat(
-    S.items.filter(i => i.d).map(i => ({ amt: -montoDe(i), desde: i.d })));
+    S.items.filter(i => i.d).map(i => ({ amt: -montoBase(i), desde: i.d })),
+    S.items.reduce((l, i) => l.concat(aumentosDe(i).map(x => ({ amt: -(+x.amt || 0), desde: x.desde }))), []));
   const aportes      = suma(S.spent.filter(e => e.meta), e => e.amt);
   const dispBase     = (+S.sueldo || 0) + (+S.previo || 0) - totalBase - aportes;
   const disp         = dispBase + suma(descuentos, x => x.amt);
@@ -543,13 +606,60 @@ function calcular(S, hoy) {
   for (let i = desde; i <= hoyIdx; i++) acumulado += presupuestoDia(i);
   const quedaHoy = acumulado - gastado(desde, hoyIdx);
   const hayManana = hoyIdx < dias - 1;
+  const saldoPeriodo = disp - suma(S.spent.filter(e => !e.meta), e => e.amt);
+
+  /* MODO FONDO: lo que no se gasta de cada día NO pasa al día siguiente: va a un fondo aparte.
+     Cada día arranca con su base. Si te pasás, depende de S.fondoExceso:
+       'siguiente' (por defecto): lo que te pasaste se descuenta del día siguiente.
+       'fondo': lo que te pasaste se descuenta del fondo.
+       'aparte': no se descuenta de ningún lado. */
+  const modoFondo = !!S.modoFondo, regla = S.fondoExceso === 'aparte' ? 'aparte' : 'siguiente';
+  let filas = null, fondo = { activo: false }, quedaHoyF = quedaHoy, mananaF = null;
+  if (modoFondo) {
+    /* El fondo cuenta desde el día en que se activó (S.fondoDesde). Los días anteriores se calculan
+       como siempre (lo que sobra pasa al día siguiente) y no aportan al fondo: así, al activarlo,
+       lo que ya tenés hoy no cambia, y desde esta noche lo que no gastes del día va al fondo. */
+    const iniFondo = S.fondoDesde ? Math.min(Math.max(numeroDeDia(S.fondoDesde) - numeroDeDia(S.start), 0), dias - 1) : 0;
+    /* Retiros del fondo marcados "para gastar" (para:'hoy'): suman al presupuesto del día en que se sacaron.
+       Si ese día no se gastan, al cierre vuelven solos al fondo (porque sobran). */
+    const extraRetiro = {};
+    (S.fondoUsos || []).forEach(x => {
+      if (x.para === 'cubre') return;
+      const k = Math.min(Math.max(numeroDeDia(x.date) - numeroDeDia(S.start), 0), dias - 1);
+      extraRetiro[k] = (extraRetiro[k] || 0) + (+x.amt || 0);
+    });
+    filas = []; let arrastre = 0;
+    for (let i = 0; i < dias; i++) {
+      if (recal && i === recal.day) arrastre = 0;
+      const sin = presupuestoDia(i) + (extraRetiro[i] || 0);
+      const presupuesto = i <= hoyIdx + 1 ? sin + arrastre : sin;
+      const gasto = gastado(i, i);
+      const sobra = presupuesto - gasto;
+      const previo = i < iniFondo;
+      filas.push({ i, presupuesto, gasto, sobra, aporte: previo ? 0 : (regla === 'fondo' ? sobra : Math.max(0, sobra)) });
+      arrastre = previo ? sobra : (regla === 'siguiente' ? Math.min(0, sobra) : 0);
+    }
+    const cerrados = Math.min(dias, Math.max(0, numeroDeDia(hoy) - numeroDeDia(S.start)));
+    const ahorroPeriodo = suma(filas.slice(0, cerrados), f => f.aporte);
+    const usos = suma(S.fondoUsos || [], x => +x.amt || 0), previo = +S.fondoPrev || 0;
+    const usosParaGastar = suma((S.fondoUsos || []).filter(x => x.para !== 'cubre'), x => +x.amt || 0);
+    quedaHoyF = filas[hoyIdx].presupuesto - filas[hoyIdx].gasto;
+    mananaF = hayManana ? presupuestoDia(hoyIdx + 1) + (regla === 'siguiente' ? Math.min(0, quedaHoyF) : 0) : null;
+    fondo = {
+      activo: true, regla, fondoPrev: previo, ahorroPeriodo, usos,
+      total: previo + ahorroPeriodo - usos,
+      acumulado: previo + (+S.fondoRetirado || 0) + ahorroPeriodo,     // lo ahorrado en total: nunca baja
+      hoySuma: regla === 'fondo' ? quedaHoyF : Math.max(0, quedaHoyF),
+      disponible: saldoPeriodo - ahorroPeriodo + usosParaGastar,   // lo retirado para gastar pasa a disponible
+    };
+  }
 
   return {
     total, porPagar, disp, dias, hoyIdx, base, recal, extra, presupuestoDia,
     baseHoy: presupuestoDia(hoyIdx),
     baseManana: hayManana ? presupuestoDia(hoyIdx + 1) : null,
-    manana: hayManana ? presupuestoDia(hoyIdx + 1) + quedaHoy : null,
-    gastoHoy, quedaHoy,
+    manana: modoFondo ? mananaF : (hayManana ? presupuestoDia(hoyIdx + 1) + quedaHoy : null),
+    gastoHoy, quedaHoy: modoFondo ? quedaHoyF : quedaHoy, filas, fondo,
     faltan: dias - hoyIdx,
     saldo: disp - suma(S.spent.filter(e => !e.meta), e => e.amt),
     gastadoAntesDeHoy: gastado(-1e9, hoyIdx - 1),
@@ -559,6 +669,11 @@ function calcular(S, hoy) {
 /* Tabla día por día: presupuesto (con lo que arrastra), gasto y sobrante */
 function diasDelPeriodo(S, hoy) {
   const c = calcular(S, hoy), salida = [];
+  if (c.fondo.activo) return c.filas.map(f => {
+    const n = numeroDeDia(S.start) + f.i;
+    return { i: f.i, iso: isoDeNumero(n), dia: NOMBRES_DIA[new Date(n * MS_DIA).getUTCDay()],
+             presupuesto: f.presupuesto, gasto: f.gasto, sobra: f.sobra };
+  });
   let arrastre = 0;
   for (let i = 0; i < c.dias; i++) {
     if (c.recal && i === c.recal.day) arrastre = 0;
@@ -591,7 +706,7 @@ function conciliar(S, c) {
   return {
     hayCuentas: cuentas.some(x => (+x.m || 0) > 0),
     total,
-    diferencia: total - c.saldo - apartadoEnMetas,
+    diferencia: total - c.saldo - apartadoEnMetas - (c.fondo.activo ? c.fondo.fondoPrev - c.fondo.usos : 0),
   };
 }
 
@@ -630,9 +745,19 @@ function iniciarPeriodo(S, hoy, { sueldo, previo, inicio, fin }) {
   S.hist = (S.hist || []).concat([{
     start: S.start, end: S.end, sueldo: S.sueldo, previo: S.previo,
     importantes: c.total, gastado: suma(S.spent.filter(e => !e.meta), e => e.amt), quedo: c.saldo,
+    ahorro: c.fondo.activo ? redondear2(c.fondo.ahorroPeriodo) : undefined,
   }]);
+  /* modo fondo: lo ahorrado queda guardado aparte y no entra en el presupuesto del período nuevo */
+  if (c.fondo.activo) { S.fondoPrev = redondear2(c.fondo.total); S.fondoRetirado = redondear2((+S.fondoRetirado || 0) + c.fondo.usos); S.fondoUsos = []; }
   const terminadas = avanzarCuotas(S);
-  S.items.forEach(i => { i.p = false; });
+  /* Gastos fijos: los que no tienen el tilde de repetir se sacan (salvo los que están en cuotas);
+     los marcados con "el monto cambia" quedan con el monto vacío. Los gastos de versiones viejas se mantienen. */
+  S.items = S.items.filter(i => tieneCuotas(i) || i.f !== false);
+  S.items.forEach(i => { i.p = false; delete i.d; delete i.x; if (i.v && !tieneCuotas(i)) i.a = 0; });
+  /* Gastos anotados por adelantado: pasan a ser gastos del período nuevo */
+  (S.proximos || []).filter(x => x.n || x.a).forEach(x => S.items.push({ n: x.n || '', a: +x.a || 0, p: false, f: false, v: false }));
+  S.proximos = [];
+  S.fondoDesde = '';
   S.cierres = {}; S.ajustes = []; S.spent = []; S.recal = null;
   if (sueldo !== undefined) { S.sueldo = sueldo; S.ingresos = [{ cat: 'Sueldo', a: sueldo }]; }
   S.previo = previo; S.start = inicio; S.end = fin;
@@ -739,7 +864,7 @@ function fraseDeEstado(c, clase) {
    02b · EXPORTAR — Excel (.xlsx) y PDF armados a mano, sin librerías
    (la app tiene que funcionar sin internet). Funciones puras.
    ===================================================================== */
-const VERSION_APP = '9.9.3';
+const VERSION_APP = '9.9.20';
 const aBytes = txt => new TextEncoder().encode(txt);
 const aBase64 = bytes => {
   let b = '';
@@ -793,6 +918,7 @@ function datosExportar(S, hoy) {
     ['Saldo', c.saldo, true],
   ];
   if (o) resumen.push(['Objetivo por día', o.obj, true], ['Te sobra si lo cumplís', o.proyectado, true]);
+  if (c.fondo.activo) resumen.push(['Ahorrado en el período', c.fondo.ahorroPeriodo, true], ['Fondo de ahorro total', c.fondo.total, true]);
   return {
     hoy, fecha, resumen,
     dias: dias.map(x => ({ fecha: fecha(x.iso), dia: x.dia, presupuesto: x.presupuesto, gasto: x.gasto, sobra: x.sobra,
@@ -913,8 +1039,8 @@ const VERSION = VERSION_APP;
 const AUTOR = 'Martín Enrique Bustos';
 const AUTOR_EMAIL = 'bustosmartin181@gmail.com';
 const AUTOR_WA = '5492612168515';
-const CAFECITO_URL = 'https://cafecito.app/dunamp';
 const CLAVE_DATOS = 'miplata_v2';
+const CLAVE_REAL = 'miplata_real_antes_demo';   // tus datos reales mientras dura el modo demo
 
 let S = cargarEstado();
 
@@ -930,7 +1056,7 @@ function guardarLocal() {
    Lo lee el widget desde el archivo widget.json de la carpeta interna de la app. */
 let temporizadorWidget = null;
 function actualizarWidgetResumen() {
-  if (!CONFIG.apk) return;
+  if (!CONFIG.apk || S.demo) return;
   clearTimeout(temporizadorWidget);
   temporizadorWidget = setTimeout(async () => {
     try {
@@ -962,7 +1088,7 @@ function guardar() {            // todo cambio pasa por acá
 const cuentasDe = () => S.cuentas || (S.cuentas = [
   { n: 'Banco', m: 0 }, { n: 'Mercado Pago', m: 0 }, { n: 'Efectivo', m: 0 }]);
 const metasDe = () => S.metas || (S.metas = [{ id: 1, n: 'Mi meta', t: 0, g0: 0, f: '' }]);
-const nombreUsuario = () => S.nombre === undefined ? '' : S.nombre;
+const nombreUsuario = () => S.demo ? 'Martín' : (S.nombre === undefined ? '' : S.nombre);
 
 /* Estado de la pantalla (no se guarda) */
 const UI = {
@@ -981,7 +1107,9 @@ const UI = {
    04 · SEGURIDAD — PIN, bloqueo automático y ocultar el dinero del mes.
    ===================================================================== */
 const ACCIONES_PROTEGIDAS = [
-  'ajustarCuentas', 'csvDias', 'csvImportantes', 'guardarNube', 'guardarEnTelefono', 'exportarXlsx', 'exportarPdf', 'recuperarNube', 'restaurar', 'borrarTodo', 'restaurarCierre'];
+  'ajustarCuentas', 'csvDias', 'csvImportantes', 'guardarNube', 'guardarEnTelefono', 'exportarXlsx', 'exportarPdf', 'recuperarNube', 'restaurar', 'borrarTodo', 'restaurarCierre', 'activarDemo', 'salirDemo'];
+/* En modo demo no se guardan copias ni se restauran datos: así los datos de ejemplo nunca pisan los reales */
+const BLOQUEADAS_EN_DEMO = ['guardarNube', 'guardarEnTelefono', 'recuperarNube', 'restaurar', 'borrarTodo', 'restaurarCierre'];
 
 let bloqueada = !!S.pin && S.pinApp !== false;
 let intentos = leerIntentos();
@@ -1120,7 +1248,7 @@ async function iniciarNube() {
 
 /* Gana siempre la copia más nueva */
 async function traerDeNube() {
-  if (!docNube) return;
+  if (!docNube || S.demo) return;
   try {
     const foto = await docNube.get(), remoto = foto.exists ? foto.data() : null;
     if (remoto && remoto.json && (remoto.upd || 0) > (S.upd || 0)) {
@@ -1136,7 +1264,7 @@ async function traerDeNube() {
 }
 
 async function subirANube(inmediato) {
-  if (!docNube) return;
+  if (!docNube || S.demo) return;
   clearTimeout(temporizadorSubida);
   const subir = async () => {
     try { await docNube.set({ json: JSON.stringify(S), upd: S.upd || Date.now() }); mensajeNube = 'Sincronizado con la nube'; }
@@ -1196,11 +1324,93 @@ async function extraerGasto(texto, imagenes) {
   } else aviso('No pude sacar el monto. Probá de nuevo.');
 }
 
-function dictarGasto() {
-  const Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;
+/* Dictado de gastos: entiende frases como "quince mil quinientos en el súper" sin internet y sin IA */
+const NUM_PALABRAS = {cero:0,un:1,uno:1,una:1,dos:2,tres:3,cuatro:4,cinco:5,seis:6,siete:7,ocho:8,nueve:9,diez:10,once:11,doce:12,trece:13,catorce:14,quince:15,dieciseis:16,diecisiete:17,dieciocho:18,diecinueve:19,veinte:20,veintiun:21,veintiuno:21,veintidos:22,veintitres:23,veinticuatro:24,veinticinco:25,veintiseis:26,veintisiete:27,veintiocho:28,veintinueve:29,treinta:30,cuarenta:40,cincuenta:50,sesenta:60,setenta:70,ochenta:80,noventa:90,cien:100,ciento:100,doscientos:200,doscientas:200,trescientos:300,trescientas:300,cuatrocientos:400,cuatrocientas:400,quinientos:500,quinientas:500,seiscientos:600,seiscientas:600,setecientos:700,setecientas:700,ochocientos:800,ochocientas:800,novecientos:900,novecientas:900,mil:1000,luca:1000,lucas:1000,millon:1e6,millones:1e6,palo:1e6,palos:1e6};
+const CLAVES_CAT = [
+  ['Súper', ['super','supermercado','mercado','almacen','chino','hipermercado']],
+  ['Transporte', ['nafta','combustible','gasoil','colectivo','bondi','sube','taxi','uber','remis','peaje','estacionamiento','cochera','pasaje']],
+  ['Salud', ['farmacia','remedio','remedios','medico','doctor','dentista','consulta','medicamento','pastillas','analisis']],
+  ['Salidas', ['cine','salida','boliche','bar','birra','cerveza','cervezas','restaurante','asado','recital','entrada','pelicula','juntada']],
+  ['Comida', ['comida','almuerzo','cena','desayuno','merienda','pizza','pizzas','carne','carniceria','pan','panaderia','verduleria','verdura','fruta','kiosco','cafe','empanadas','helado','gaseosa','bebida','hamburguesa','milanesa','facturas']],
+];
+const RELLENO_DICTADO = new Set(['de','en','el','la','los','las','un','una','por','con','para','a','al','que','pesos','peso','ars','gaste','gasto','pague','pago','compre','me','salio','salieron','fue','fueron','mi','mis','y']);
+const sinTilde = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const esDigito = t => /^\d/.test(t);
+const esNumPalabra = t => Object.prototype.hasOwnProperty.call(NUM_PALABRAS, t);
+const esNum = t => esDigito(t) || esNumPalabra(t);
+function numDigitos(t) {
+  if (/^\d{1,3}(,\d{3})+$/.test(t)) t = t.replace(/,/g, '');
+  t = t.replace(/\.(?=\d{3}(?:\D|$))/g, '').replace(',', '.');
+  const n = parseFloat(t); return isNaN(n) ? 0 : n;
+}
+function valorNumero(toks) {
+  let total = 0, actual = 0;
+  for (const t of toks) {
+    if (t === 'y') continue;
+    if (esDigito(t)) { actual += numDigitos(t); continue; }
+    const v = NUM_PALABRAS[t];
+    if (v >= 1000) { total += (actual || 1) * v; actual = 0; } else actual += v;
+  }
+  return Math.round((total + actual) * 100) / 100;
+}
+/* Devuelve { monto, detalle, cat } o null si no encuentra un monto */
+function gastoDesdeFrase(texto) {
+  const orig = String(texto).toLowerCase().replace(/[$¿?¡!;:()"]/g, ' ').split(/\s+/).filter(Boolean).map(t => t.replace(/[.,]+$/, '')).filter(Boolean);
+  const norm = orig.map(sinTilde);
+  let mejor = null;
+  for (let i = 0; i < norm.length; i++) {
+    if (!esNum(norm[i])) continue;
+    let j = i;
+    while (j + 1 < norm.length) {
+      if (esNum(norm[j + 1])) j++;
+      else if (norm[j + 1] === 'y' && j + 2 < norm.length && esNum(norm[j + 2]) && !esDigito(norm[j]) && !esDigito(norm[j + 2])) j += 2;
+      else break;
+    }
+    const valor = valorNumero(norm.slice(i, j + 1));
+    if (valor > 0 && (!mejor || valor > mejor.valor)) mejor = { ini: i, fin: j, valor };
+    i = j;
+  }
+  if (!mejor) return null;
+  const resto = orig.map((t, k) => [t, norm[k], k]).filter(x => x[2] < mejor.ini || x[2] > mejor.fin);
+  while (resto.length && RELLENO_DICTADO.has(resto[0][1])) resto.shift();
+  while (resto.length && RELLENO_DICTADO.has(resto[resto.length - 1][1])) resto.pop();
+  let detalle = resto.map(x => x[0]).join(' ');
+  detalle = detalle.charAt(0).toUpperCase() + detalle.slice(1);
+  const palabras = new Set(resto.map(x => x[1]));
+  let cat = '';
+  for (const [nombre, claves] of CLAVES_CAT) if (claves.some(c => palabras.has(c))) { cat = nombre; break; }
+  return { monto: mejor.valor, detalle, cat };
+}
+
+function usarFraseDictada(t) {
+  if (hayClaude()) { aviso('Escuché: ' + t); extraerGasto('Frase: ' + t, []); return; }
+  const g = gastoDesdeFrase(t);
+  if (!g) { aviso('Escuché: «' + t + '». No entendí el monto, probá de nuevo.'); return; }
+  UI.borrador = { amt: g.monto, note: g.detalle }; UI.editando = null;
+  if (g.cat) UI.categoria = g.cat;
+  dibujar();
+  aviso('Escuché: ' + t + '. Revisá y tocá Anotar gasto.');
+}
+
+async function dictarGasto() {
+  const SR = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition;
+  if (SR) {            // dentro del APK: dictado nativo de Android
+    try {
+      const disp = await SR.available();
+      if (!disp || !disp.available) { aviso('Este teléfono no tiene dictado por voz. Usá el micrófono del teclado.'); return; }
+      let permiso = await SR.checkPermissions();
+      if (permiso.speechRecognition !== 'granted') permiso = await SR.requestPermissions();
+      if (permiso.speechRecognition !== 'granted') { aviso('Sin permiso de micrófono no puedo escucharte. Podés darlo en Ajustes del teléfono → Apps → Mi plata → Permisos.'); return; }
+      const r = await SR.start({ language: 'es-AR', maxResults: 3, prompt: 'Decí el gasto. Ej: quince mil en el súper', partialResults: false, popup: true });
+      const t = r && r.matches && r.matches[0];
+      if (t) usarFraseDictada(t); else aviso('No te escuché. Probá de nuevo.');
+    } catch (_) { aviso('No se pudo dictar. Probá de nuevo o usá el micrófono del teclado.'); }
+    return;
+  }
+  const Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;   // versión web
   if (!Reconocedor) { aviso('Acá no hay dictado. Usá el micrófono del teclado del teléfono.'); return; }
   const r = new Reconocedor(); r.lang = 'es-AR'; r.interimResults = false;
-  r.onresult = ev => { const t = ev.results[0][0].transcript; aviso('Escuché: ' + t); extraerGasto('Frase: ' + t, []); };
+  r.onresult = ev => usarFraseDictada(ev.results[0][0].transcript);
   r.onerror = () => aviso('No pude usar el micrófono acá. Probá con el micrófono del teclado.');
   try { r.start(); aviso('Escuchando… decí el gasto'); } catch (_) { aviso('No pude usar el micrófono.'); }
 }
@@ -1398,13 +1608,13 @@ function pantallaHoy(c) {
     /* orden pensado para el uso diario: primero lo que se mira y lo que se hace todos los días */
     tarjetaQuedaHoy(c, clase, mensaje, presupuesto, porcentaje),
     tarjetaAnotarGasto(editado, hoy),          /* SIEMPRE justo debajo de "Te queda para hoy" */
+    tarjetaFondo(c),
     tarjetaGastosAnotados(),
     tarjetaRacha(),
     tarjetaAvisoCopia(),
     tarjetaSaldo(c),
     tarjetaCuentas(c),
     tarjetaRecalibrar(c),
-    lineaCafecito(),
   ].join('');
 }
 
@@ -1452,7 +1662,7 @@ function tarjetaRacha() {
 
 /* Aviso en Hoy cuando hace días que no se guarda una copia (no aparece dentro de Claude, que ya sincroniza) */
 function tarjetaAvisoCopia() {
-  if (CONFIG.nube) return '';
+  if (CONFIG.nube || S.demo) return '';
   const e = estadoCopia(S, Date.now());
   if (!e.avisar) return '';
   const texto = e.dias === null ? 'Todavía no guardaste ninguna copia de tus datos.' : `Hace ${e.dias} días que no guardás una copia de tus datos.`;
@@ -1461,12 +1671,67 @@ function tarjetaAvisoCopia() {
     '<div class="f" style="margin:0"><button data-a="guardarNube">Guardar ahora</button>' + (CONFIG.apk ? '<button class="sec" data-a="guardarEnTelefono">📱 En el teléfono</button>' : '') + '<button class="sec" data-a="posponerCopia">Más tarde</button></div></div>';
 }
 
+const colorClase = clase => clase === 'neg' ? 'var(--bad)' : clase === 'warn' ? 'var(--warn)' : 'var(--ok)';
+function anillo(gastadoPct, clase) {
+  const resto = Math.max(0, Math.min(100, 100 - gastadoPct)), largo = 2 * Math.PI * 38;
+  return `<div class="anillo"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="38" fill="none" stroke="var(--bd)" stroke-width="10"/>` +
+    `<circle cx="50" cy="50" r="38" fill="none" stroke="${colorClase(clase)}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${(largo * resto / 100).toFixed(1)} ${largo.toFixed(1)}"/></svg><b>${Math.round(resto)}%</b></div>`;
+}
+function chipCategoria(cat) {
+  const k = CATEGORIAS_GASTO.findIndex(x => x[1] === cat);
+  return `<i class="kchip k${k < 0 ? 5 : k}">${k < 0 ? '💸' : CATEGORIAS_GASTO[k][0]}</i>`;
+}
+/* Una barra por día: verde = dentro del límite, rojo = te pasaste. La raya es la base por día. */
+function graficoDias(c) {
+  const dias = diasDelPeriodo(S, hoyISO()).filter(x => x.i <= c.hoyIdx);
+  if (dias.length < 2) return '';
+  const tope = Math.max(1, c.baseHoy, ...dias.map(x => x.gasto)) * 1.1, W = 300, H = 90, ancho = W / dias.length;
+  const barras = dias.map(x => { const h = Math.max(1, x.gasto / tope * H);
+    return `<rect x="${(x.i * ancho + ancho * 0.15).toFixed(1)}" y="${(H - h).toFixed(1)}" width="${(ancho * 0.7).toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${x.gasto > x.presupuesto + 0.5 ? 'var(--bad)' : 'var(--ok)'}"/>`; }).join('');
+  const y = H - c.baseHoy / tope * H;
+  return '<div class="card"><h2>Mis días</h2>' + `<svg class="grafico" viewBox="0 0 ${W} ${H}">${barras}<line x1="0" x2="${W}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="var(--mut)" stroke-dasharray="4 4"/></svg>` +
+    '<div class="mut" style="font-size:13px;margin-top:6px">Cada barra es un día: verde = dentro del límite, rojo = te pasaste. La raya es tu base por día.</div></div>';
+}
+function lineaFondo(c) {
+  const f = c.filas || [], pts = []; let acum = 0;
+  f.slice(0, c.hoyIdx).forEach(x => { acum += x.aporte; pts.push(acum); });
+  if (pts.length < 2) return '';
+  const min = Math.min(0, ...pts), max = Math.max(1, ...pts), W = 300, H = 50;
+  const p = pts.map((v, k) => `${(k / (pts.length - 1) * W).toFixed(1)},${(H - (v - min) / (max - min) * (H - 6) - 3).toFixed(1)}`).join(' ');
+  return `<svg class="grafico" viewBox="0 0 ${W} ${H}" style="margin-top:8px"><polyline points="${p}" fill="none" stroke="var(--ok)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
 function tarjetaQuedaHoy(c, clase, mensaje, presupuesto, porcentaje) {
-  return `<div class="card"><div class="mut">Te queda para hoy</div><div class="num ${clase}">${pesosConCentavos(c.quedaHoy)}</div>` +
+  return `<div class="card hero-card"><div class="mut">Te queda para hoy</div><div class="hero-fila"><div class="num ${clase}" style="margin:0;font-size:2.5rem">${pesosConCentavos(c.quedaHoy)}</div>${anillo(porcentaje, clase)}</div>` +
     `<div class="bar ${clase}"><i style="width:${porcentaje}%"></i></div>` +
     `<div class="mut">Presupuesto de hoy ${pesos(presupuesto)}. Gastaste ${pesos(c.gastoHoy)}.</div>` +
-    (c.manana != null ? `<div style="margin-top:8px">Mañana tendrás <b class="${c.manana < 0 ? 'neg' : ''}">${pesosConCentavos(c.manana)}</b></div>` : '') +
+    (c.fondo.activo ? `<div class="mut" style="margin-top:4px">Lo que no gastes hoy va a tu fondo: <b class="${c.fondo.hoySuma < 0 ? 'neg' : ''}">${pesosConCentavos(c.fondo.hoySuma)}</b></div>` : '') +
+    (c.manana != null ? `<div id="linea-manana" style="margin-top:8px">Mañana tendrás <b class="${c.manana < 0 ? 'neg' : ''}">${pesosConCentavos(c.manana)}</b></div>` : '') +
     (mensaje ? `<div class="${clase}" style="font-weight:600;margin-top:6px">${mensaje}</div>` : '') + '</div>';
+}
+
+/* Fondo de ahorro: se ve siempre en Hoy, sin tener que ir a otra pestaña */
+function tarjetaFondo(c) {
+  const f = c.fondo;
+  if (!f.activo) return '';
+  const usos = S.fondoUsos || [];
+  const retirado = f.acumulado - f.total;
+  const detalle = [
+    'Este período: <b>' + dinero(f.ahorroPeriodo) + '</b>',
+    f.fondoPrev ? 'De antes: <b>' + dinero(f.fondoPrev) + '</b>' : '',
+    retirado > 0 ? 'Retiraste: <b>' + dinero(retirado) + '</b>' : '',
+  ].filter(Boolean).join(' · ');
+  const formulario = UI.usandoFondo
+    ? '<div style="margin-top:10px;padding:12px;border:1px solid var(--ac);border-radius:10px"><label>¿Cuánto sacás del fondo?</label>' +
+      `<input id="fu" inputmode="decimal" placeholder="Monto"><label>¿Para qué?</label><input id="fn" placeholder="Detalle (opcional)">` +
+      '<label>¿Qué hacés con esa plata?</label><select id="fp"><option value="hoy">La voy a gastar hoy (suma a mi límite de hoy)</option><option value="cubre">Cubre gastos que ya hice / cuadrar con el banco (no suma a hoy)</option></select>' +
+      '<div class="f" style="margin:10px 0 0"><button class="sec" data-a="cancelarUsoFondo">Cancelar</button><button data-a="confirmarUsoFondo">Sacar</button></div></div>'
+    : '<div class="f" style="margin-top:8px"><button class="sec" data-a="usarFondo">Usar del fondo</button></div>';
+  const lista = usos.length
+    ? '<div style="margin-top:8px">' + usos.map((x, k) => `<div class="row"><span>${diaYMes(x.date)} ${escapar(x.note || 'Uso del fondo')}${x.para !== 'cubre' ? ' (para hoy)' : ''}</span><span><b>${dinero(-x.amt)}</b><button class="x" data-a="quitarUsoFondo" data-i="${k}">✕</button></span></div>`).join('') + '</div>'
+    : '';
+  return `<div class="card"><div class="mut">Mi fondo de ahorro ${botonOjo()}</div><div class="num">${dinero(f.total)}</div>` +
+    `<div class="mut">${detalle}</div>` + lineaFondo(c) + formulario + lista + '</div>';
 }
 
 function tarjetaSaldo(c) {
@@ -1497,7 +1762,12 @@ function tarjetaCuentas(c) {
       S.ajustes.map((x, i) => `<div class="row"><span>${diaYMes(x.date)} ${escapar(x.note)}</span><span><b>${dineroOculto() ? '••••' : pesos(x.amt)}</b>` +
         `<button class="x" data-a="quitarRecomposicion" data-i="${i}">✕</button></span></div>`).join('') + '</div>'
     : '';
-  return '<div class="card"><h2>Mis cuentas</h2>' + filas + comparacion +
+  const resumenFondo = c.fondo.activo
+    ? '<div style="margin:8px 0">' + filaDoble('Disponible para gastar', dinero(c.fondo.disponible)) +
+      filaDoble('Fondo de ahorro', dinero(c.fondo.total)) +
+      filaDoble('Total (lo que tendrías en cuentas)', dinero(c.fondo.disponible + c.fondo.total)) + '</div>'
+    : '';
+  return '<div class="card"><h2>Mis cuentas</h2>' + filas + resumenFondo + comparacion +
     '<div class="f" style="margin-top:8px;flex-wrap:wrap"><button class="sec" data-a="agregarCuenta">Agregar cuenta</button>' +
     (cc.hayCuentas ? '<button data-a="ajustarCuentas">Ajustar con las cuentas</button>' : '') + '</div>' + pendiente + recomposiciones +
     '<div class="mut" style="font-size:13px;margin-top:6px">Las cuentas tildadas cuentan. Lo que apartaste para tus metas se considera dentro de ellas. Destildá, por ejemplo, la plata de reservas.</div></div>';
@@ -1530,7 +1800,7 @@ function tarjetaRecalibrar(c) {
 function tarjetaGastosAnotados() {
   const todos = [...S.spent].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
   const lista = UI.verTodos ? todos.slice(0, 60) : todos.slice(0, 5);     // en Hoy se ven los últimos 5
-  const fila = e => `<div class="row"><span>${diaYMes(e.date)} ${emojiCategoria(e.cat)}${escapar(e.note || e.cat || '')}</span><span><b>${pesos(e.amt)}</b>` +
+  const fila = e => `<div class="row"><span style="display:flex;align-items:center">${chipCategoria(e.cat)}<span>${escapar(e.note || e.cat || 'Gasto')}<br><small class="mut">${diaYMes(e.date)}</small></span></span><span><b>${pesos(e.amt)}</b>` +
     `<button class="x" data-a="editar" data-i="${e.id}">✎</button><button class="x" data-a="borrar" data-i="${e.id}">✕</button></span></div>`;
   return '<div class="card"><h2>Gastos anotados</h2>' + (lista.length ? lista.map(fila).join('') : '<div class="mut">Todavía no anotaste gastos.</div>') +
     (todos.length > 5 ? `<button class="sec" data-a="verTodos" style="width:100%;margin-top:10px">${UI.verTodos ? 'Ver solo los últimos 5' : 'Ver todos (' + todos.length + ')'}</button>` : '') + '</div>';
@@ -1545,10 +1815,11 @@ function pantallaDias(c) {
       `<span>${pesos(x.presupuesto)}</span><span>${x.gasto ? pesos(x.gasto) : ''}</span>` +
       `<span class="${pasado && x.sobra < 0 ? 'neg' : ''}">${pasado ? pesos(x.sobra) : ''}</span></div>`;
   }).join('');
-  return tarjetaObjetivo(c) + '<div class="card"><h2>Día por día</h2><div class="mut" style="margin:-4px 0 8px">Tocá un día para ver sus gastos.</div>' +
+  return tarjetaObjetivo(c) + graficoDias(c) + '<div class="card"><h2>Día por día</h2><div class="mut" style="margin:-4px 0 8px">Tocá un día para ver sus gastos.</div>' +
     '<div class="tb mut"><span>Día</span><span>Presupuesto</span><span>Gasto</span><span>Sobrante</span></div>' + filas +
     '<div style="margin-top:8px">' + filaDoble('Total gastado', pesos(suma(S.spent.filter(e => !e.meta), e => e.amt))) +
-    filaDoble(`Queda del monto disponible ${botonOjo()}`, dinero(c.saldo)) + '</div></div>';
+    filaDoble(`Queda del monto disponible ${botonOjo()}`, dinero(c.saldo)) +
+    (c.fondo.activo ? filaDoble('Ahorrado en el fondo este período', dinero(c.fondo.ahorroPeriodo)) : '') + '</div></div>';
 }
 
 function ventanaDia(iso) {
@@ -1575,7 +1846,7 @@ function pantallaPlan(c) {
   const resumen = '<div class="card"><h2>Resumen del mes</h2>' + filaDoble('Total de ingresos', dinero(totalIngresos(S))) +
     filaDoble('Total gastos importantes', pesos(c.total)) + filaDoble('Todavía por pagar', pesos(c.porPagar)) +
     filaDoble(`Disponible del mes ${botonOjo()}`, dinero(c.disp)) + filaDoble(`Base por día (${c.dias} días)`, pesos(c.base)) + '</div>';
-  return tarjetaIngresos(false) + tarjetaGastosImportantes() + tarjetaCuotas() + resumen + tarjetaMetas();
+  return tarjetaIngresos(false) + tarjetaGastosImportantes() + tarjetaProximos() + tarjetaCuotas() + resumen + tarjetaMetas();
 }
 
 function tarjetaIngresos(intro) {
@@ -1597,9 +1868,26 @@ function tarjetaGastosImportantes() {
     `<input data-f="itemNombre" data-k="${k}" value="${escapar(i.n)}" placeholder="Nombre">` +
     `<input data-f="itemMonto" data-k="${k}" inputmode="decimal" value="${i.a || ''}" placeholder="Monto" style="max-width:110px">` +
     `<button class="x" data-a="quitarGasto" data-i="${k}">✕</button></div>` +
-    (i.d ? `<div class="mut" style="font-size:12px;margin:-4px 0 8px 32px">Se descuenta desde el ${diaYMes(i.d)}</div>` : '') + lineaDeCuotas(i, k)).join('');
-  return '<div class="card"><h2>🧾 Pagar al cobrar</h2><div class="mut" style="margin-bottom:8px">Lo primero que se paga cuando cobrás.</div>' + lista +
+    (i.d ? `<div class="mut" style="font-size:12px;margin:-4px 0 8px 32px">Se descuenta desde el ${diaYMes(i.d)}</div>` : '') +
+    (i.x || []).map(x => `<div class="mut" style="font-size:12px;margin:-4px 0 8px 32px">Aumento de ${dineroOculto() ? '••••' : pesos(x.amt)} desde el ${diaYMes(x.desde)}</div>`).join('') +
+    ((i.n || i.a) && !tieneCuotas(i) ? `<div class="f" style="margin:-4px 0 6px 32px;flex-wrap:wrap;gap:4px 14px">` +
+      `<label class="mut" style="margin:0;font-size:13px;display:flex;align-items:center;gap:6px"><input type="checkbox" data-f="itemRepite" data-k="${k}" ${i.f !== false ? 'checked' : ''}>🔁 Repetir el mes que viene</label>` +
+      (i.f !== false ? `<label class="mut" style="margin:0;font-size:13px;display:flex;align-items:center;gap:6px"><input type="checkbox" data-f="itemVariable" data-k="${k}" ${i.v ? 'checked' : ''}>✏️ El monto cambia (queda vacío)</label>` : '') +
+      `</div>` : '') + lineaDeCuotas(i, k)).join('');
+  return '<div class="card"><h2>🧾 Pagar al cobrar</h2><div class="mut" style="margin-bottom:8px">Lo primero que se paga cuando cobrás. Tildá 🔁 en los fijos de todos los meses; si el monto cambia (luz, gas), tildá también ✏️ y el mes que viene aparecen con el monto vacío.</div>' + lista +
     '<button class="sec" data-a="agregarGasto">Agregar gasto</button></div>';
+}
+
+/* Gastos del próximo período: se anotan ahora pero NO descuentan nada de este; al empezar el período nuevo pasan a "Pagar al cobrar" */
+function tarjetaProximos() {
+  const l = S.proximos || [];
+  const lista = l.map((x, k) =>
+    `<div class="f"><input data-f="proxNombre" data-k="${k}" value="${escapar(x.n)}" placeholder="Nombre">` +
+    `<input data-f="proxMonto" data-k="${k}" inputmode="decimal" value="${x.a || ''}" placeholder="Monto" style="max-width:110px">` +
+    `<button class="x" data-a="quitarProximo" data-i="${k}">✕</button></div>`).join('');
+  return '<div class="card"><h2>🗓️ Para el próximo período</h2><div class="mut" style="margin-bottom:8px">Anotá ya los gastos que sabés que vas a tener cuando cobres. No descuentan nada de este período; cuando empieces el nuevo pasan solos a "Pagar al cobrar".</div>' + lista +
+    (l.length ? `<div style="margin:4px 0 8px">${filaDoble('Ya reservado para el próximo', pesos(suma(l, x => +x.a || 0)))}</div>` : '') +
+    '<button class="sec" data-a="agregarProximo">Agregar gasto del próximo período</button></div>';
 }
 
 /* Debajo de cada gasto: o los datos de la cuota (5 de 12) o el botón para marcarlo en cuotas */
@@ -1638,11 +1926,11 @@ function contenidoBienvenida() {
   if (paso === 0)
     return `<div class="hero"><div class="moneda">💰</div><div class="serif hero-t">Bienvenido${nombre ? ',<br>' + escapar(nombre) : ''}</div>` +
       '<div class="serif hero-s">a Mi plata</div><p class="hero-p">Ordená tu plata, un día a la vez.</p>' +
-      `<input data-f="nombre" value="${escapar(nombre)}" placeholder="¿Cómo te llamás? (opcional)" style="max-width:320px;text-align:center">` +
-      '<div class="importar"><div class="importar-fila"><span class="importar-icono">📥</span><span class="importar-txt"><b>¿Ya usabas Mi plata?</b><span>Traé tus datos desde una copia de seguridad.</span></span></div>' +
+      `<input data-f="nombre" value="${escapar(nombre)}" placeholder="¿Cómo te llamás? (opcional)"${S.demo ? ' readonly autocomplete="off"' : ''} style="max-width:320px;text-align:center">` +
+      (S.demo ? '' : '<div class="importar"><div class="importar-fila"><span class="importar-icono">📥</span><span class="importar-txt"><b>¿Ya usabas Mi plata?</b><span>Traé tus datos desde una copia de seguridad.</span></span></div>' +
       '<button class="sec" data-a="recuperarNube" style="width:100%;margin-top:12px;background:var(--card)">Importar copia de seguridad</button>' +
-      '<input id="fi" type="file" accept=".json,.txt,application/json,text/plain" style="display:none"></div>' +
-      pieCopyright() + '</div>' + pie(false, 'Comenzar →');
+      '<input id="fi" type="file" accept=".json,.txt,application/json,text/plain" style="display:none"></div>') +
+      pieCopyright() + '</div>' + pie(false, S.demo ? 'Continuar →' : 'Comenzar →');
 
   /* 1 · Cómo funciona, con un ejemplo con números */
   if (paso === 1)
@@ -1660,7 +1948,7 @@ function contenidoBienvenida() {
     const puntos = CONFIG.nube
       ? ['Sin anuncios.', 'Tus datos se guardan en tu cuenta de Claude: nadie más los ve.', 'Podés ponerle PIN a la app.', 'Podés guardar una copia cuando quieras.']
       : ['Sin cuenta ni registro.', 'Sin anuncios.', 'Tus números se guardan en tu teléfono y solo salen si vos guardás una copia.',
-         'No pide acceso a tus contactos, ubicación, cámara ni micrófono.', 'Podés ponerle PIN para que nadie vea tus números.', 'Las copias las guardás vos, en tu Drive.'];
+         'No pide acceso a tus contactos, ubicación ni cámara. El micrófono solo se usa si tocás Dictar.', 'Podés ponerle PIN para que nadie vea tus números.', 'Las copias las guardás vos, en tu Drive.'];
     return titulo('Tu plata, tu decisión', 'Lo que tenés que saber antes de empezar.') + '<div class="card">' +
       puntos.map(t => `<div class="f" style="align-items:flex-start"><span style="color:var(--ok);font-weight:700">✓</span><span>${t}</span></div>`).join('') + '</div>' +
       (CONFIG.apk ? '<div class="mut" style="font-size:13px">Podés comprobar los permisos en Ajustes de Android → Apps → Mi plata → Permisos.</div>' : '') +
@@ -1722,20 +2010,22 @@ function pantallaClaude() {
 
 /* ------------------------------ AJUSTES ------------------------------ */
 function pantallaAjustes(c) {
-  return [tarjetaPin(), tarjetaApariencia(), tarjetaRecordatorio(), tarjetaPeriodo(), tarjetaNuevoPeriodo(c), tarjetaCierreNocturno(), tarjetaNube(), tarjetaExcel(),
-    tarjetaCafecito(), tarjetaAcercaDe(),
-    '<div class="card"><h2>Empezar de cero</h2><button class="sec" data-a="borrarTodo">Borrar todo</button></div>'].join('');
+  return [S.demo ? tarjetaDemo() : '', tarjetaPin(), tarjetaApariencia(), tarjetaRecordatorio(), tarjetaPeriodo(), tarjetaModoFondo(), tarjetaNuevoPeriodo(c), tarjetaCierreNocturno(), tarjetaNube(), tarjetaExcel(),
+    tarjetaAcercaDe(),
+    S.demo ? '' : tarjetaDemo(),
+    S.demo ? '' : '<div class="card"><h2>Empezar de cero</h2><button class="sec" data-a="borrarTodo">Borrar todo</button></div>'].join('');
 }
 
-/* Cafecito: tarjeta completa (Ajustes) y línea chica (final de Hoy) */
-function tarjetaCafecito() {
-  return '<div class="card"><h2>☕ Invitame un cafecito</h2>' +
-    '<div class="mut" style="margin-bottom:10px">Mi plata es gratis y la hago yo. Si te sirve y querés apoyar para que siga mejorando, podés invitarme un cafecito.</div>' +
-    '<a class="bt cafe" href="' + CAFECITO_URL + '" target="_blank" rel="noopener">☕ Invitame un cafecito</a></div>';
-}
-function lineaCafecito() {
-  return '<div class="mut" style="text-align:center;margin:14px 0 4px;font-size:14px">¿Te sirve Mi plata? ' +
-    '<a href="' + CAFECITO_URL + '" target="_blank" rel="noopener" style="color:#b45309;font-weight:600;text-decoration:none">☕ Invitame un cafecito</a></div>';
+function tarjetaDemo() {
+  if (S.demo) return '<div class="card" style="border:2px solid var(--ac)"><h2>🎬 Modo demo activo</h2>' +
+    '<div class="mut" style="margin-bottom:10px">Estás viendo datos de ejemplo. Lo que anotes acá se descarta al salir. Tus datos reales están guardados aparte y vuelven cuando salís.</div>' +
+    '<div style="font-weight:700;margin:4px 0">▶️ Demo automática para grabar</div>' +
+    '<div class="mut" style="margin-bottom:8px">Se escribe sola: anota un gasto y pone el objetivo por día. Pasos: 1) empezá a grabar la pantalla de Android, 2) volvé acá y tocá Reproducir, 3) hay 5 segundos de cuenta regresiva y arranca. Para cortarla, tocá 3 veces la pantalla.</div>' +
+    `<label style="display:flex;gap:8px;align-items:center;color:var(--tx);margin:8px 0"><input type="checkbox" data-f="demoFrases" ${S.demoFrases === false ? '' : 'checked'}>Mostrar frases en pantalla</label>` +
+    '<div class="f" style="flex-wrap:wrap"><button data-a="reproducirDemo">▶️ Reproducir demo</button><button class="sec" data-a="salirDemo">Salir y volver a mis datos</button></div></div>';
+  return '<div class="card"><h2>🎬 Modo demo</h2>' +
+    '<div class="mut" style="margin-bottom:10px">Carga datos de ejemplo para grabar videos o sacar capturas sin mostrar tu plata. Tus datos reales se guardan aparte y vuelven cuando salís.</div>' +
+    '<button class="sec" data-a="activarDemo">Activar modo demo</button></div>';
 }
 
 function tarjetaAcercaDe() {
@@ -1778,10 +2068,22 @@ function tarjetaPeriodo() {
     '<div style="margin-top:12px"><button class="sec" data-a="verIntroduccion">Ver la introducción</button></div></div>';
 }
 
+function tarjetaModoFondo() {
+  const on = !!S.modoFondo, regla = S.fondoExceso || 'siguiente';
+  const opcion = (v, t) => `<option value="${v}"${(regla === 'aparte' ? 'aparte' : 'siguiente') === v ? ' selected' : ''}>${t}</option>`;
+  return '<div class="card"><h2>Fondo de ahorro</h2><div class="mut" style="margin-bottom:10px">Si lo activás, lo que no gastás cada día no pasa al día siguiente: se guarda solo en un fondo aparte. Cada día arranca con tu base por día. El fondo se ve en Hoy y se cuenta desde el día en que lo activás: no toca lo que ya tenías.</div>' +
+    `<div class="f"><input type="checkbox" data-f="modoFondo"${on ? ' checked' : ''}><span>Activar el fondo de ahorro</span></div>` +
+    (on ? '<label>Si me paso del límite de un día</label><select data-f="fondoExceso">' +
+      opcion('siguiente', 'Se descuenta del día siguiente') + opcion('aparte', 'No se descuenta de ningún lado') + '</select>' +
+      `<label>Fondo que ya tenías juntado de antes</label><input type="${campoDinero()}" data-f="fondoPrev" inputmode="decimal" value="${S.fondoPrev || ''}" placeholder="Monto">` : '') +
+    '</div>';
+}
+
 function tarjetaNuevoPeriodo(c) {
-  return '<div class="card"><h2>Nuevo período</h2><div class="mut" style="margin-bottom:8px">Guarda el período actual en el historial, destilda los gastos importantes y empieza de cero. Tus ingresos se mantienen y las cuotas pasan a la siguiente.</div>' +
+  return '<div class="card"><h2>Nuevo período</h2><div class="mut" style="margin-bottom:8px">Guarda el período actual en el historial y empieza de cero. Quedan los gastos importantes con 🔁 (los de monto variable, con el monto vacío), tus ingresos y las cuotas pasan a la siguiente.</div>' +
+    (c.fondo.activo ? '<div class="mut" style="margin-bottom:8px">Lo que ahorraste en el fondo queda guardado aparte y no se suma al saldo previo del período nuevo.</div>' : '') +
     '<label>Saldo previo en cuenta</label>' +
-    `<input id="np" inputmode="decimal" value="${Math.max(0, Math.round(c.saldo))}"><label>Día que cobrás (inicio)</label><input id="nd1" type="date" value="${S.end}">` +
+    `<input id="np" inputmode="decimal" value="${Math.max(0, Math.round(c.saldo - (c.fondo.activo ? c.fondo.ahorroPeriodo : 0)))}"><label>Día que cobrás (inicio)</label><input id="nd1" type="date" value="${S.end}">` +
     `<label>Próximo cobro (fin)</label><input id="nd2" type="date" value="${mesSiguiente(S.end)}"><div style="margin-top:10px"><button data-a="periodoNuevo">Empezar nuevo período</button></div></div>`;
 }
 
@@ -1843,6 +2145,7 @@ function ventanaResumen() {
   const fecha = new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
   let texto = '💰 Mi plata · ' + fecha + '\nPresupuesto de hoy: ' + pesos(c.quedaHoy + c.gastoHoy) + '\nGasté hoy: ' + pesos(c.gastoHoy) + '\nMe queda para hoy: ' + pesos(c.quedaHoy);
   if (c.manana != null) texto += '\nMañana tendré: ' + pesos(c.manana);
+  if (c.fondo.activo) texto += '\n🏦 Mi fondo de ahorro: ' + pesos(c.fondo.total);
   texto += '\nDías hasta el próximo cobro: ' + c.faltan;
   metasDe().filter(m => m.t > 0).forEach(m => { texto += '\n🎯 ' + m.n + ': ' + Math.round(juntadoEnMeta(S, m) / m.t * 100) + '% juntado'; });
   texto += '\n\n“' + fraseDelDia(hoy) + '”';
@@ -1865,11 +2168,11 @@ function dibujar() {
   if (bloqueada || !S.bienvenida) document.body.classList.add('sin-degradado'); else document.body.classList.remove('sin-degradado');
   if (bloqueada) { nav.style.display = 'none'; fab.style.display = 'none'; principal.innerHTML = pantallaBloqueo(); return; }
   if (!S.bienvenida) { nav.style.display = 'none'; fab.style.display = 'none'; principal.innerHTML = pantallaBienvenida(); return; }
-  nav.style.display = ''; fab.style.display = UI.pestana === 'hoy' ? 'none' : '';
+  nav.style.display = ''; fab.style.display = '';
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.t === UI.pestana));
   const pantallas = { plan: pantallaPlan, hoy: pantallaHoy, dias: pantallaDias, claude: pantallaClaude, ajustes: pantallaAjustes };
   principal.innerHTML = (pantallas[UI.pestana] || pantallaHoy)(calcular(S, hoyISO())) +
-    '<div class="mut" style="text-align:center;margin-top:12px;font-size:13px">Versión ' + VERSION + (mensajeNube ? ' · ' + mensajeNube : '') + '</div>' +
+    '<div class="mut" style="text-align:center;margin-top:12px;font-size:13px">Versión ' + VERSION + (S.demo ? ' · modo demo' : '') + (mensajeNube ? ' · ' + mensajeNube : '') + '</div>' +
     pieCopyright();
 }
 
@@ -1883,6 +2186,7 @@ const valorDe = id => document.getElementById(id).value;
 
 /* Recupera los datos desde el texto de una copia (archivo elegido o texto pegado) */
 async function restaurarDesdeTexto(texto) {
+  if (S.demo) { aviso('En modo demo no se puede restaurar. Salí del modo demo en Ajustes.'); return false; }
   let datos;
   try {
     datos = JSON.parse(texto);
@@ -1935,12 +2239,14 @@ const ACCIONES = {
   quitarRecalibracion() { S.recal = null; S.objetivo = 0; S.objetivoDesde = ''; },
 
   /* --- gastos importantes --- */
-  agregarGasto() {      // un gasto nuevo con el período empezado se descuenta desde mañana
+  agregarGasto() {      // un gasto nuevo con el período empezado se descuenta desde hoy
     const hoy = hoyISO(), empezado = numeroDeDia(hoy) >= numeroDeDia(S.start);
-    S.items.push({ n: '', a: 0, p: false,
-      d: empezado ? isoDeNumero(Math.min(numeroDeDia(hoy) + 1, numeroDeDia(S.end) - 1)) : '' });
+    S.items.push({ n: '', a: 0, p: false, f: false, v: false,
+      d: empezado ? isoDeNumero(Math.min(numeroDeDia(hoy), numeroDeDia(S.end) - 1)) : '' });
   },
   quitarGasto(el) { S.items.splice(+el.dataset.i, 1); },
+  agregarProximo() { (S.proximos = S.proximos || []).push({ n: '', a: 0 }); },
+  quitarProximo(el) { S.proximos.splice(+el.dataset.i, 1); },
   ponerCuotas(el) { S.items[+el.dataset.i].q = { actual: 1, total: 12 }; },
   quitarCuotas(el) { delete S.items[+el.dataset.i].q; },
 
@@ -1979,6 +2285,20 @@ const ACCIONES = {
     S.ajustes.splice(+el.dataset.i, 1);
   },
 
+  /* --- fondo de ahorro --- */
+  usarFondo() { UI.usandoFondo = true; dibujar(); return SIN_GUARDAR; },
+  cancelarUsoFondo() { UI.usandoFondo = false; dibujar(); return SIN_GUARDAR; },
+  confirmarUsoFondo() {
+    const monto = aNumero(valorDe('fu'));
+    if (!monto) return SIN_GUARDAR;
+    (S.fondoUsos = S.fondoUsos || []).push({ id: Date.now(), date: hoyISO(), amt: monto, note: valorDe('fn').trim(), para: valorDe('fp') === 'cubre' ? 'cubre' : 'hoy' });
+    UI.usandoFondo = false; aviso('Listo: sacaste ' + pesos(monto) + ' del fondo.');
+  },
+  async quitarUsoFondo(el) {
+    if (!(await confirmar('¿Quitar este retiro? El monto vuelve al fondo.'))) return SIN_GUARDAR;
+    S.fondoUsos.splice(+el.dataset.i, 1);
+  },
+
   /* --- metas --- */
   agregarMeta() { metasDe().push({ id: Date.now(), n: '', t: 0, g0: 0, f: '' }); },
   async quitarMeta(el) {
@@ -1995,7 +2315,7 @@ const ACCIONES = {
   async periodoNuevo() {
     const inicio = valorDe('nd1'), fin = valorDe('nd2');
     if (!inicio || !fin || numeroDeDia(fin) <= numeroDeDia(inicio)) { aviso('Revisá las fechas.'); return SIN_GUARDAR; }
-    if (!(await confirmar('Se guarda el período actual en el historial y empieza uno nuevo. Tus ingresos se mantienen y las cuotas pasan a la siguiente. ¿Seguir?'))) return SIN_GUARDAR;
+    if (!(await confirmar('Se guarda el período actual en el historial y empieza uno nuevo. Los gastos importantes sin 🔁 se sacan; los de monto variable quedan vacíos. ¿Seguir?'))) return SIN_GUARDAR;
     const terminadas = iniciarPeriodo(S, hoyISO(), { previo: aNumero(valorDe('np')), inicio, fin });
     UI.pestana = 'hoy'; UI.editando = null;
     if (terminadas.length) aviso('Terminaste de pagar: ' + terminadas.join(', '));
@@ -2048,6 +2368,41 @@ const ACCIONES = {
     aviso('Copia guardada.');
   },
   posponerCopia() { S.posponerCopia = Date.now() + 3 * MS_DIA; },
+
+  /* --- modo demo --- */
+  async activarDemo() {
+    if (S.demo) return SIN_GUARDAR;
+    if (!(await confirmar('Se cargan datos de ejemplo para grabar videos. Tus datos reales quedan guardados aparte y vuelven cuando salís. Mientras tanto, lo que anotes se descarta. ¿Activar?'))) return SIN_GUARDAR;
+    const real = JSON.stringify(S);
+    try {
+      localStorage.setItem(CLAVE_REAL, real);
+      if (localStorage.getItem(CLAVE_REAL) !== real) throw new Error('no se guardó');
+    } catch (_) { aviso('No se pudo guardar tu copia, así que no se activó el modo demo.'); return SIN_GUARDAR; }
+    if (CONFIG.apk) { try { await guardarEnDocumentos('mi-plata-antes-del-demo.json', real); } catch (_) {} }
+    S = estadoDemo(S);
+    const hoy = hoyISO();
+    aplicarObjetivo(12000);
+    S.objetivoDesde = isoDeNumero(numeroDeDia(S.start) + 2);
+    ajustarCuentasDemo();
+    UI.pestana = 'ajustes';
+    aviso('Modo demo activado. Acá abajo podés reproducir la demo automática.');
+  },
+  async reproducirDemo() { if (S.demo) await correrDemo(); return SIN_GUARDAR; },
+  async salirDemo() {
+    if (!S.demo) return SIN_GUARDAR;
+    let real = null;
+    try { real = JSON.parse(localStorage.getItem(CLAVE_REAL)); } catch (_) {}
+    if (real && real.items) {
+      if (!(await confirmar('Se descartan los datos de ejemplo y vuelven los tuyos. ¿Salir del modo demo?'))) return SIN_GUARDAR;
+      S = migrarEstado(real);
+      try { localStorage.removeItem(CLAVE_REAL); } catch (_) {}
+      aviso('Listo: volvieron tus datos.');
+    } else {
+      if (!(await confirmar('No encuentro tus datos guardados. ¿Salir igual y empezar de cero? Después podés recuperar tu copia desde la pantalla de inicio.'))) return SIN_GUARDAR;
+      S = estadoInicial(hoyISO());
+    }
+    UI.pestana = 'ajustes';
+  },
   recuperarNube() { const selector = document.getElementById('fi'); if (selector && selector.click) selector.click(); return SIN_GUARDAR; },
   async restaurar() { await restaurarDesdeTexto(valorDe('bk')); return SIN_GUARDAR; },
   async borrarTodo() {
@@ -2076,7 +2431,7 @@ const ACCIONES = {
 
 /* Campos que se editan escribiendo: nombre del campo -> qué cambia */
 const CAMBIOS = {
-  nombre:        v => { S.nombre = v.trim(); },
+  nombre:        v => { if (S.demo) return; S.nombre = v.trim(); },
   objetivo:      v => {
     const antes = S.objetivo || 0;
     aplicarObjetivo(aNumero(v));
@@ -2094,10 +2449,14 @@ const CAMBIOS = {
   recHora:       v => { if (v) { S.recHora = v; if (S.recOn) programarRecordatorio(true); } },
   diasCopia:     v => { S.diasCopia = Math.max(0, Math.round(aNumero(v))); },
   previo:        v => { S.previo = aNumero(v); },
+  modoFondo:     (v, el) => { S.modoFondo = el.checked; if (el.checked) S.fondoDesde = hoyISO(); UI.usandoFondo = false; },
+  fondoExceso:   v => { S.fondoExceso = ['siguiente', 'fondo', 'aparte'].includes(v) ? v : 'siguiente'; },
+  fondoPrev:     v => { S.fondoPrev = aNumero(v); },
   aviso:         v => { S.aviso = Math.min(100, Math.max(0, aNumero(v))); },
   inicio:        v => { if (v) S.start = v; },
   fin:           v => { if (v) S.end = v; },
   pinApp:        (v, el) => { S.pinApp = el.checked; },
+  demoFrases:    (v, el) => { S.demoFrases = el.checked; },
   cuentaNombre:  (v, el, k) => { cuentasDe()[k].n = v; },
   cuentaSaldo:   (v, el, k) => { cuentasDe()[k].m = aNumero(v); },
   cuentaCuenta:  (v, el, k) => { cuentasDe()[k].x = !el.checked; },
@@ -2106,8 +2465,30 @@ const CAMBIOS = {
   metaPrevio:    (v, el, k) => { metasDe()[k].g0 = aNumero(v); },
   metaFecha:     (v, el, k) => { metasDe()[k].f = v; },
   itemNombre:    (v, el, k) => { S.items[k].n = v; },
-  itemMonto:     (v, el, k) => { S.items[k].a = aNumero(v); },
+  proxNombre:    (v, el, k) => { S.proximos[k].n = v; },
+  proxMonto:     (v, el, k) => { S.proximos[k].a = aNumero(v); },
+  itemMonto:     (v, el, k) => {
+    /* Con el período ya empezado, lo nuevo (un monto recién cargado o un aumento) se descuenta
+       desde hoy, repartido entre los días que faltan; lo que ya estaba no se toca. */
+    const it = S.items[k], antes = montoDe(it), nuevo = aNumero(v), hoy = hoyISO();
+    if (numeroDeDia(hoy) >= numeroDeDia(S.start) && nuevo !== antes) {
+      const desde = isoDeNumero(Math.min(numeroDeDia(hoy), numeroDeDia(S.end) - 1));
+      if (antes === 0) { it.d = desde; delete it.x; }
+      else if (nuevo > antes) (it.x = it.x || []).push({ amt: redondear2(nuevo - antes), desde });
+      else {                                           // baja: primero se sacan los aumentos más nuevos
+        let baja = antes - nuevo;
+        while (baja > 0 && it.x && it.x.length) {
+          const u = it.x[it.x.length - 1];
+          if (u.amt > baja) { u.amt = redondear2(u.amt - baja); baja = 0; } else { baja -= u.amt; it.x.pop(); }
+        }
+        if (it.x && !it.x.length) delete it.x;
+      }
+    }
+    it.a = nuevo;
+  },
   itemPagado:    (v, el, k) => { S.items[k].p = el.checked; },
+  itemRepite:    (v, el, k) => { S.items[k].f = el.checked; if (!el.checked) S.items[k].v = false; },
+  itemVariable:  (v, el, k) => { S.items[k].v = el.checked; },
   ingresoCategoria: (v, el, k) => { S.ingresos[k].cat = v; },
   ingresoMonto:  (v, el, k) => { S.ingresos[k].a = aNumero(v); },
   cuotaActual:   (v, el, k) => { const q = S.items[k].q; q.actual = Math.max(1, Math.round(aNumero(v))); if (q.actual > q.total) q.total = q.actual; },
@@ -2125,6 +2506,7 @@ async function alHacerClic(e) {
   if (accion) await ejecutar(accion, e.target, false);
 }
 async function ejecutar(accion, elemento, autorizado) {
+  if (S.demo && BLOQUEADAS_EN_DEMO.includes(accion)) { aviso('En modo demo no se puede hacer eso. Salí del modo demo en Ajustes.'); return; }
   if (ACCIONES_PROTEGIDAS.includes(accion) && S.pin && !autorizado) {       // pide PIN y reintenta
     if (!(await pedirPin('Continuar'))) return;
     return ejecutar(accion, elemento, true);
@@ -2176,6 +2558,210 @@ function aplicarObjetivo(valor) {
   S.objetivo = n;
   if (n > 0) { S.objetivoDesde = hoy; S.recal = { day: c.hoyIdx, base: n, obj: true }; }
   else { S.objetivoDesde = ''; if (S.recal && S.recal.obj) S.recal = null; }
+}
+
+/* =====================================================================
+   DEMO AUTOMÁTICA — escribe sola los datos de ejemplo para grabar la pantalla.
+   Solo anda en modo demo. Tocar 3 veces la pantalla la corta.
+   ===================================================================== */
+let demoCorriendo = false, demoCancelada = false, demoRitmo = 1;     // demoRitmo: 1 = velocidad normal
+const DEMO_CORTADA = 'demo-cortada';
+async function pausaDemo(ms) {
+  const fin = Date.now() + ms * demoRitmo;
+  while (Date.now() < fin) {
+    if (demoCancelada) throw new Error(DEMO_CORTADA);
+    await new Promise(r => setTimeout(r, Math.max(0, Math.min(100, fin - Date.now()))));
+  }
+  if (demoCancelada) throw new Error(DEMO_CORTADA);
+}
+const buscarDemo = sel => document.querySelector(sel);
+function demoFrase(texto) {
+  let f = document.getElementById('demo-frase');
+  if (!texto || S.demoFrases === false) { if (f) f.classList.remove('on'); return; }
+  if (!f) { f = document.createElement('div'); f.id = 'demo-frase'; document.body.appendChild(f); }
+  f.textContent = texto; f.classList.add('on');
+}
+function demoCapa(encender) {
+  let c = document.getElementById('demo-capa');
+  if (!encender) { if (c) c.remove(); return; }
+  if (c) return;
+  c = document.createElement('div'); c.id = 'demo-capa';
+  let toques = [];
+  c.addEventListener('click', () => {                       // 3 toques seguidos cortan la demo
+    const t = Date.now(); toques = toques.filter(x => t - x < 1200).concat(t);
+    if (toques.length >= 3) demoCancelada = true;
+  });
+  document.body.appendChild(c);
+}
+function demoToque(el) {
+  if (!el || !el.getBoundingClientRect) return;
+  const r = el.getBoundingClientRect(), t = document.createElement('div');
+  t.className = 'demo-toque'; t.style.left = (r.left + r.width / 2) + 'px'; t.style.top = (r.top + r.height / 2) + 'px';
+  document.body.appendChild(t); setTimeout(() => t.remove(), 800);
+}
+async function demoTocar(el) {
+  if (!el) return;
+  if (el.getBoundingClientRect && el.scrollIntoView && !(el.closest && el.closest('.pie, nav'))) {   // si está fuera de vista, se desplaza hasta ahí
+    const r = el.getBoundingClientRect(), alto = typeof innerHeight === 'number' ? innerHeight : 800;
+    if (r.top < 110 || r.bottom > alto - 140) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); await pausaDemo(700); }
+  }
+  demoToque(el); await pausaDemo(450); el.click(); await pausaDemo(350);
+}
+function demoConfirmar(el) { if (el && el.dispatchEvent) el.dispatchEvent(new Event('change', { bubbles: true })); }   // como al salir del campo
+/* Cursor que parpadea al final de lo escrito (el teclado de Android no se abre, así que se dibuja uno) */
+function demoCursor(el, texto) {
+  let c = document.getElementById('demo-cursor');
+  if (!el || !el.getBoundingClientRect) { if (c) c.remove(); return; }
+  if (!c) { c = document.createElement('div'); c.id = 'demo-cursor'; document.body.appendChild(c); }
+  const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+  let ancho = 0;
+  try {
+    const g = (demoCursor.lienzo || (demoCursor.lienzo = document.createElement('canvas'))).getContext('2d');
+    g.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+    ancho = g.measureText(texto || '').width;
+  } catch (_) {}
+  const alto = (parseFloat(cs.fontSize) || 16) * 1.3;
+  c.style.left = (r.left + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.borderLeftWidth) || 0) + ancho) + 'px';
+  c.style.top = (r.top + r.height / 2 - alto / 2) + 'px';
+  c.style.height = alto + 'px';
+  c.style.background = cs.color || '#000';
+}
+async function demoEscribir(el, texto, ms, espera) {
+  if (!el) return;
+  el.value = '';
+  try {
+    demoCursor(el, '');
+    await pausaDemo(espera || 600);                            // el cursor parpadea un momento antes de escribir
+    for (const letra of texto) { el.value += letra; demoCursor(el, el.value); await pausaDemo(ms || 130); }
+    await pausaDemo(400);
+  } finally { demoCursor(null); }
+}
+async function demoCuenta() {
+  const c = document.createElement('div'); c.id = 'demo-cuenta'; document.body.appendChild(c);
+  try {
+    for (let n = 5; n >= 1; n--) {
+      c.innerHTML = '<div class="demo-aviso">Empezá a grabar la pantalla</div><div class="demo-num">' + n + '</div>' +
+        '<div class="demo-aviso" style="font-size:14px;font-weight:400">Para cortar: tocá 3 veces la pantalla</div>';
+      await pausaDemo(1000);
+    }
+  } finally { c.remove(); }
+}
+async function correrDemo() {
+  if (demoCorriendo || !S.demo) return;
+  demoCorriendo = true; demoCancelada = false;
+  const frases = S.demoFrases !== false;
+  S = estadoDemo(S); S.demoFrases = frases;                 // siempre arranca de los mismos datos de ejemplo
+  ajustarCuentasDemo();
+  S.ingresos = [{ cat: 'Sueldo', a: 0 }]; S.items = [];      // la introducción los carga sola
+  S.bienvenida = false; UI.paso = 0;                       // arranca en la pantalla de bienvenida
+  UI.pestana = 'hoy'; UI.borrador = {}; UI.categoria = ''; UI.editando = null;
+  guardar(); dibujar(); scrollTo(0, 0);
+  demoCapa(true);
+  try {
+    await demoCuenta();
+    const siguiente = async () => { await demoTocar(buscarDemo('.pie button[data-a="pasoSiguiente"]')); await pausaDemo(900); };
+    demoFrase('Dejé el Excel y armé mi propia app 📱');
+    await pausaDemo(3500); await siguiente();                    // Continuar →
+
+    demoFrase('Así funciona: tres pasos y listo');
+    await pausaDemo(5500); await siguiente();
+
+    demoFrase('Sin cuenta ni anuncios: tus datos quedan en tu celu');
+    await pausaDemo(5500); await siguiente();
+
+    demoFrase('Cargo lo que cobro');
+    await pausaDemo(1200);
+    const sueldo = buscarDemo('input[data-f="ingresoMonto"]');
+    await demoTocar(sueldo); await demoEscribir(sueldo, '620000', 130); demoConfirmar(sueldo);
+    await pausaDemo(3200); await siguiente();
+
+    demoFrase('Anoto lo que pago sí o sí');
+    await pausaDemo(1000);
+    for (const [nombre, monto] of [['Alquiler', '180000'], ['Luz', '25000'], ['Internet', '20000']]) {
+      await demoTocar(buscarDemo('button[data-a="agregarGasto"]'));
+      const k = S.items.length - 1;
+      if (S.items[k]) { S.items[k].d = ''; dibujar(); }          // en el demo corre desde el inicio del período
+      await pausaDemo(300);
+      const cNombre = buscarDemo('input[data-f="itemNombre"][data-k="' + k + '"]');
+      await demoTocar(cNombre); await demoEscribir(cNombre, nombre, 100, 350); demoConfirmar(cNombre);
+      const cMonto = buscarDemo('input[data-f="itemMonto"][data-k="' + k + '"]');
+      await demoTocar(cMonto); await demoEscribir(cMonto, monto, 120, 350); demoConfirmar(cMonto);
+      await pausaDemo(400);
+    }
+    scrollTo({ top: document.documentElement.scrollHeight || 9999, behavior: 'smooth' });   // muestra "Así queda tu mes"
+    await pausaDemo(4000); await siguiente();
+
+    demoFrase('Y la app me dice cuánto puedo gastar por día');
+    await pausaDemo(5000); await siguiente();                    // Empezar →
+    ajustarCuentasDemo(); guardar(); dibujar();
+
+    demoFrase('Anoto cada gasto en 5 segundos');
+    const tarjeta = buscarDemo('#tarjeta-anotar');
+    if (tarjeta && tarjeta.scrollIntoView) tarjeta.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    await pausaDemo(1000);
+    await demoTocar(buscarDemo('#am')); await demoEscribir(buscarDemo('#am'), '6500', 150);
+    await demoTocar(buscarDemo('#nt')); await demoEscribir(buscarDemo('#nt'), 'Almuerzo', 110);
+    await demoTocar(buscarDemo('button[data-a="categoria"][data-v="Comida"]'));
+    await pausaDemo(500);
+    await demoTocar(buscarDemo('#tarjeta-anotar button[data-a="anotar"]'));
+    await pausaDemo(600);
+    ajustarCuentasDemo(); guardar(); dibujar();
+
+    demoFrase('Sé cuánta plata me queda para hoy');
+    scrollTo({ top: 0, behavior: 'smooth' });
+    await pausaDemo(4000);
+
+    /* --- Lo que sobra hoy pasa a mañana, y si me paso se descuenta mañana --- */
+    const resaltarManana = async ms => {
+      const el = buscarDemo('#linea-manana');
+      if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      await pausaDemo(900);
+      if (el) el.classList.add('demo-resalte');
+      await pausaDemo(ms);
+      if (el) el.classList.remove('demo-resalte');
+    };
+    demoFrase('Lo que no gasto hoy, pasa a mañana 👉');
+    await resaltarManana(5500);
+
+    demoFrase('¿Y si me paso hoy? Se descuenta de mañana');
+    const cB = calcular(S, hoyISO());
+    const exceso = Math.max(1000, Math.round((cB.quedaHoy + (cB.baseManana || 0) * 0.75) / 1000) * 1000);   // deja a mañana con poco
+    const tarjetaB = buscarDemo('#tarjeta-anotar');
+    if (tarjetaB && tarjetaB.scrollIntoView) tarjetaB.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    await pausaDemo(1000);
+    await demoTocar(buscarDemo('#am')); await demoEscribir(buscarDemo('#am'), String(exceso), 150);
+    await demoTocar(buscarDemo('#nt')); await demoEscribir(buscarDemo('#nt'), 'Cena', 110);
+    await demoTocar(buscarDemo('button[data-a="categoria"][data-v="Salidas"]'));
+    await pausaDemo(500);
+    await demoTocar(buscarDemo('#tarjeta-anotar button[data-a="anotar"]'));
+    await pausaDemo(600);
+    ajustarCuentasDemo(); guardar(); dibujar();
+    const gastoExtra = S.spent[S.spent.length - 1], idExceso = gastoExtra && gastoExtra.id;
+    await resaltarManana(6000);
+
+    demoFrase('Elijo cuánto gastar por día y veo cuánto ahorro');
+    await demoTocar(buscarDemo('nav button[data-t="dias"]'));
+    if (idExceso) { S.spent = S.spent.filter(x => x.id !== idExceso); ajustarCuentasDemo(); guardar(); dibujar(); }   // vuelve a los números de antes
+    await pausaDemo(800);
+    const campo = buscarDemo('input[data-f="objetivo"]');
+    await demoTocar(campo); await demoEscribir(campo, '12000', 160);
+    await pausaDemo(400);
+    if (campo) campo.dispatchEvent(new Event('change', { bubbles: true }));
+    await pausaDemo(5000);
+
+    demoFrase('Gratis 👉 link en mi bio');
+    await demoTocar(buscarDemo('nav button[data-t="hoy"]'));
+    await pausaDemo(4000);
+  } catch (e) {
+    if (!(e && e.message === DEMO_CORTADA)) console.error(e);
+  } finally {
+    const cortada = demoCancelada;
+    demoFrase(''); demoCapa(false); demoCursor(null);
+    const cuenta = document.getElementById('demo-cuenta'); if (cuenta) cuenta.remove();
+    demoCorriendo = false; demoCancelada = false;
+    S.bienvenida = true; UI.paso = 0; UI.pestana = 'hoy'; dibujar();
+    if (cortada) aviso('Demo cortada.');
+  }
 }
 
 /* Con el teclado abierto: se esconde la barra de abajo y, si se escribe en "Anotar gasto", la tarjeta
@@ -2239,6 +2825,7 @@ function iniciar() {
   document.addEventListener('visibilitychange', alCambiarVisibilidad);
 
   dibujar();
+  if (S.demo) aviso('Modo demo activo: son datos de ejemplo. Salí desde Ajustes.');
   if (S.recOn) programarRecordatorio(false);
   actualizarWidgetResumen();
   iniciarNube().then(() => cerrarDias());
