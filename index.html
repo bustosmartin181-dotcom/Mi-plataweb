@@ -4,6 +4,7 @@
 <title>Mi plata</title>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
 <meta name="theme-color" content="#1B6B4A">
+<meta name="color-scheme" content="light dark">
 <style>
 :root {
   --bg: #F5F1EB;
@@ -159,6 +160,14 @@ input, select {
   transition: border-color 0.15s;
 }
 input:focus, select:focus { border-color: var(--ac); }
+/* v9.9.28: que se lea lo que escribís también con el teléfono en modo oscuro.
+   Le avisamos al teléfono que la app ya tiene su propio modo oscuro (así no "oscurece" la pantalla por su cuenta
+   y deja letras claras sobre fondo claro) y fijamos el color del texto de cada campo. */
+:root { color-scheme: light dark; }
+:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
+input, select, textarea { -webkit-text-fill-color: var(--tx); caret-color: var(--ac); }
+input::placeholder, textarea::placeholder { color: var(--mut); -webkit-text-fill-color: var(--mut); opacity: 1; }
 input[type=checkbox] { width: 22px; height: 22px; flex: none; }
 textarea {
   font-family: var(--font-body);
@@ -502,8 +511,25 @@ function numeroDeDia(iso) {
   return Date.UTC(a, m - 1, d) / MS_DIA;
 }
 const isoDeNumero = n => new Date(n * MS_DIA).toISOString().slice(0, 10);
-/* Mercado Pago acredita el rendimiento por la mañana de cada día hábil (lunes a viernes); lo de fin de semana llega junto el lunes. No contempla feriados. */
-const esHabil = n => { const d = new Date(n * MS_DIA).getUTCDay(); return d >= 1 && d <= 5; };
+/* Mercado Pago acredita el rendimiento cada día hábil (lunes a viernes, sin feriados bancarios); lo de fin de semana y feriados llega junto el siguiente día hábil. */
+/* v9.9.28: feriados de Argentina y de Mendoza. [nombre, ¿sin bancos?]
+   Los días "sin bancos" (nacionales y bancarios) Mercado Pago no acredita rendimientos: lo acumulado llega el siguiente día hábil.
+   Los feriados solo de Mendoza NO frenan a Mercado Pago (es nacional): se muestran pero no cambian el rendimiento.
+   2027: feriados fijos y trasladables conocidos; los puentes turísticos hay que sumarlos cuando se confirmen. */
+const FERIADOS = {
+  '2026-11-06': ['Día del Bancario', true], '2026-11-09': ['Visita del Papa', true], '2026-11-10': ['Feriado bancario', true],
+  '2026-11-23': ['Día de la Soberanía Nacional', true], '2026-12-07': ['Día no laborable (puente)', true],
+  '2026-12-08': ['Inmaculada Concepción', true], '2026-12-25': ['Navidad', true],
+  '2027-01-01': ['Año Nuevo', true], '2027-02-08': ['Carnaval', true], '2027-02-09': ['Carnaval', true],
+  '2027-03-24': ['Día de la Memoria', true], '2027-03-25': ['Jueves Santo', true], '2027-03-26': ['Viernes Santo', true],
+  '2027-04-02': ['Malvinas', true], '2027-05-01': ['Día del Trabajador', true], '2027-05-25': ['Revolución de Mayo', true],
+  '2027-06-20': ['Día de la Bandera', true], '2027-06-21': ['Paso a la Inmortalidad de Güemes', true],
+  '2027-07-09': ['Día de la Independencia', true], '2027-07-25': ['Santiago Apóstol (Mendoza)', false],
+  '2027-11-06': ['Día del Bancario', true], '2027-12-08': ['Inmaculada Concepción', true], '2027-12-25': ['Navidad', true],
+};
+const feriadoDe = iso => FERIADOS[iso] || null;
+const esHabil = n => { const d = new Date(n * MS_DIA).getUTCDay(), f = FERIADOS[new Date(n * MS_DIA).toISOString().slice(0, 10)];
+  return d >= 1 && d <= 5 && !(f && f[1]); };
 function hoyISO() {
   const d = new Date();
   return d.getFullYear() + '-' + dosDigitos(d.getMonth() + 1) + '-' + dosDigitos(d.getDate());
@@ -522,6 +548,13 @@ const mananaISO = hoy => isoDeNumero(numeroDeDia(hoy) + 1);
    ===================================================================== */
 
 const montoDe = item => +item.a || 0;
+/* v9.9.28 · Entradas y "Me lo devuelven".
+   - Entrada de dinero: un movimiento con monto negativo (suma ese día).
+   - Gasto "me lo devuelven" (dev: 1): la plata salió de tu cuenta, pero NO baja tu límite del día.
+     Cuando te pagan (dev: 2) deja de contar también en el saldo: es como si nunca hubiera salido. */
+const cuentaEnDia   = e => !e.meta && !e.dev;            // afecta el presupuesto de cada día
+const cuentaEnSaldo = e => !e.meta && e.dev !== 2;       // plata que realmente salió (o entró)
+const pendienteDev  = e => e.dev === 1;
 
 /* Estado vacío para empezar de cero */
 function estadoInicial(hoy) {
@@ -603,7 +636,7 @@ function calcular(S, hoy) {
 
   const idxDe     = e => numeroDeDia(e.date) - numeroDeDia(S.start);
   const gastado   = (a, b) =>
-    suma(S.spent.filter(e => !e.meta && idxDe(e) >= a && idxDe(e) <= b), e => e.amt);
+    suma(S.spent.filter(e => cuentaEnDia(e) && idxDe(e) >= a && idxDe(e) <= b), e => e.amt);
   const gastoHoy  = gastado(hoyIdx, hoyIdx);
 
   /* Rendimiento estimado del dinero disponible (Mercado Pago): cada día cerrado rinde (tasa anual / 365) sobre lo que
@@ -629,7 +662,7 @@ function calcular(S, hoy) {
   for (let i = desde; i <= hoyIdx; i++) acumulado += presupuestoDia(i);
   const quedaHoy = acumulado - gastado(desde, hoyIdx);
   const hayManana = hoyIdx < dias - 1;
-  let saldoPeriodo   = disp - suma(S.spent.filter(e => !e.meta), e => e.amt);
+  let saldoPeriodo   = disp - suma(S.spent.filter(cuentaEnSaldo), e => e.amt);
 
   /* MODO FONDO: lo que no se gasta de cada día NO pasa al día siguiente: va a un fondo aparte.
      Cada día arranca con su base. Si te pasás, depende de S.fondoExceso:
@@ -666,7 +699,7 @@ function calcular(S, hoy) {
       if (i < hoyIdx) sumarRendDisp(i, aportesAcum, usosHastaDia(i));
       aportesAcum += filas[i].aporte;
     }
-    saldoPeriodo = disp - suma(S.spent.filter(e => !e.meta), e => e.amt);
+    saldoPeriodo = disp - suma(S.spent.filter(cuentaEnSaldo), e => e.amt);
     const cerrados = Math.min(dias, Math.max(0, numeroDeDia(hoy) - numeroDeDia(S.start)));
     const ahorroPeriodo = suma(filas.slice(0, cerrados), f => f.aporte);
     const usos = suma(S.fondoUsos || [], x => +x.amt || 0), previo = +S.fondoPrev || 0;
@@ -710,7 +743,7 @@ function calcular(S, hoy) {
     manana: modoFondo ? mananaF : (hayManana ? presupuestoDia(hoyIdx + 1) + quedaHoy : null),
     gastoHoy, quedaHoy: modoFondo ? quedaHoyF : quedaHoy, filas, fondo,
     faltan: dias - hoyIdx,
-    saldo: disp - suma(S.spent.filter(e => !e.meta), e => e.amt),
+    saldo: disp - suma(S.spent.filter(cuentaEnSaldo), e => e.amt),
     gastadoAntesDeHoy: gastado(-1e9, hoyIdx - 1),
   };
 }
@@ -729,7 +762,7 @@ function diasDelPeriodo(S, hoy) {
     const sinArrastre = (c.recal && i >= c.recal.day) ? c.recal.base : c.base + c.extra(i);
     const presupuesto = i <= c.hoyIdx + 1 ? sinArrastre + arrastre : sinArrastre;
     const n = numeroDeDia(S.start) + i, iso = isoDeNumero(n);
-    const gasto = suma(S.spent.filter(e => e.date === iso && !e.meta), e => e.amt);
+    const gasto = suma(S.spent.filter(e => e.date === iso && cuentaEnDia(e)), e => e.amt);
     const sobra = presupuesto - gasto;
     arrastre = sobra;
     salida.push({ i, iso, dia: NOMBRES_DIA[new Date(n * MS_DIA).getUTCDay()],
@@ -793,7 +826,7 @@ function iniciarPeriodo(S, hoy, { sueldo, previo, inicio, fin }) {
   const c = calcular(S, hoy);
   S.hist = (S.hist || []).concat([{
     start: S.start, end: S.end, sueldo: S.sueldo, previo: S.previo,
-    importantes: c.total, gastado: suma(S.spent.filter(e => !e.meta), e => e.amt), quedo: c.saldo,
+    importantes: c.total, gastado: suma(S.spent.filter(cuentaEnSaldo), e => e.amt), quedo: c.saldo,
     ahorro: c.fondo.activo ? redondear2(c.fondo.ahorroPeriodo) : undefined,
   }]);
   /* modo fondo: lo ahorrado queda guardado aparte y no entra en el presupuesto del período nuevo */
@@ -806,12 +839,16 @@ function iniciarPeriodo(S, hoy, { sueldo, previo, inicio, fin }) {
   S.items.forEach(i => { i.p = false; delete i.d; delete i.x;
     if (i.prox != null && i.prox !== '') i.a = +i.prox || 0;          // el monto que ya cargaste para el período nuevo
     else if (i.v && !tieneCuotas(i)) i.a = 0;
-    delete i.prox; });
+    delete i.prox;
+    if (i.ipc && i.ipc.pend && inicio.slice(0, 7) >= i.ipc.pend.desde) { i.a = i.ipc.pend.monto; delete i.ipc.pend; } });
   /* Gastos anotados por adelantado: pasan a ser gastos del período nuevo */
   (S.proximos || []).filter(x => x.n || x.a).forEach(x => S.items.push({ n: x.n || '', a: +x.a || 0, p: false, f: false, v: false }));
   S.proximos = [];
   S.fondoDesde = '';
+  S.fondoUsos = [];          // v9.9.28: los retiros del fondo son del período que termina (aunque el fondo esté apagado)
   if (S.rendDispOn) S.rendDispDesde = inicio;
+  /* Lo que te deben del período anterior no se pierde: pasa a la lista "Me deben" del período nuevo */
+  S.meDeben = (S.meDeben || []).concat(S.spent.filter(pendienteDev).map(e => ({ id: e.id, date: e.date, amt: e.amt, note: e.note || '' })));
   S.cierres = {}; S.ajustes = []; S.spent = []; S.recal = null;
   if (sueldo !== undefined) { S.sueldo = sueldo; S.ingresos = [{ cat: 'Sueldo', a: sueldo }]; }
   S.previo = previo; S.start = inicio; S.end = fin;
@@ -845,6 +882,15 @@ function avanzarCuotas(S) {
 function migrarEstado(S) {
   if (!S.ingresos) S.ingresos = [{ cat: 'Sueldo', a: +S.sueldo || 0 }];
   if (S.bienvenida === undefined) S.bienvenida = (+S.sueldo > 0) || (S.spent || []).length > 0;
+  /* v9.9.28: el pago a Alejandro se actualiza por IPC cada 6 meses (vos y María Sol ponen la mitad cada uno).
+     Este período arrancó en septiembre 2026, así que la próxima actualización es en marzo 2027. */
+  /* v9.9.28: retiros del fondo de un período anterior que quedaron guardados (pasaba si el fondo se apagaba antes de
+     cambiar de período): ya no cuentan. Si no, al volver a activar el fondo arrancaba en negativo. */
+  if (S.fondoUsos && S.start) S.fondoUsos = S.fondoUsos.filter(x => !x.date || x.date >= S.start);
+  if (!S.ipcMig) {
+    S.ipcMig = 1;
+    (S.items || []).forEach(i => { if (/alejandro/i.test(i.n || '') && !i.ipc) i.ipc = { prox: '2027-03', cada: 6, partes: 2 }; });
+  }
   return S;
 }
 
@@ -918,7 +964,7 @@ function fraseDeEstado(c, clase) {
    02b · EXPORTAR — Excel (.xlsx) y PDF armados a mano, sin librerías
    (la app tiene que funcionar sin internet). Funciones puras.
    ===================================================================== */
-const VERSION_APP = '9.9.27';
+const VERSION_APP = '9.9.31';
 const aBytes = txt => new TextEncoder().encode(txt);
 const aBase64 = bytes => {
   let b = '';
@@ -968,7 +1014,7 @@ function datosExportar(S, hoy) {
     ['Todavía por pagar', c.porPagar, true],
     ['Disponible del mes', c.disp, true],
     ['Base por día', c.base, true],
-    ['Gastado en el período', suma(S.spent.filter(e => !e.meta), e => e.amt), true],
+    ['Gastado en el período', suma(S.spent.filter(cuentaEnSaldo), e => e.amt), true],
     ['Saldo', c.saldo, true],
   ];
   if (o) resumen.push(['Objetivo por día', o.obj, true], ['Te sobra si lo cumplís', o.proyectado, true]);
@@ -978,7 +1024,7 @@ function datosExportar(S, hoy) {
     dias: dias.map(x => ({ fecha: fecha(x.iso), dia: x.dia, presupuesto: x.presupuesto, gasto: x.gasto, sobra: x.sobra,
       pasado: x.i <= c.hoyIdx || !!x.gasto })),
     gastos: [...S.spent].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id).map(e => ({
-      fecha: fecha(e.date), cat: e.cat || '', nota: e.note || '', amt: e.amt, tipo: e.meta ? 'Aporte a meta' : 'Gasto' })),
+      fecha: fecha(e.date), cat: e.cat || '', nota: e.note || '', amt: e.amt, tipo: e.meta ? 'Aporte a meta' : e.amt < 0 ? 'Entrada' : e.dev === 1 ? 'Me lo deben' : e.dev === 2 ? 'Me lo devolvieron' : 'Gasto' })),
     importantes: S.items.filter(i => i.n || i.a).map(i => ({ n: i.n || '', a: montoDe(i), estado: i.p ? 'Pagado' : 'Pendiente',
       cuotas: tieneCuotas(i) ? i.q.actual + ' de ' + i.q.total : '' })),
   };
@@ -1131,6 +1177,7 @@ function actualizarWidgetResumen() {
 }
 
 function guardar() {            // todo cambio pasa por acá
+  if (S.modoFondo) programarAvisoReserva(false);
   if (S.ingresos) S.sueldo = totalIngresos(S);    // el sueldo es la suma de los ingresos
   S.upd = Date.now();
   guardarLocal();
@@ -1151,6 +1198,7 @@ const UI = {
   verTodos: false,       // en Hoy: ¿se ven todos los gastos o solo los últimos 5?
   categoria: '',         // categoría elegida para el gasto que se está anotando
   editando: null,        // id del gasto que se está editando
+  modoAnotar: 'gasto',   // 'gasto' o 'entrada'
   borrador: {},          // monto y detalle que llegan por voz o foto
   ajustePendiente: null, // diferencia de cuentas esperando confirmación
   mostrarDinero: false,  // ¿se muestran los números del mes?
@@ -1637,6 +1685,42 @@ async function programarRecordatorio(pedirPermiso) {
   } catch (_) { return false; }
 }
 
+/* v9.9.30 · Aviso de la reserva: cada noche, a la hora elegida, una notificación con lo que te sobró del día
+   para que lo pases a tu reserva de Mercado Pago. Se vuelve a programar cada vez que anotás algo, así el monto es el real.
+   Los días siguientes (si no abrís la app) se avisa con la base del día, que es lo que sobra si no gastás nada. */
+const AVISO_RESERVA_ID = 7100, DIAS_AVISO_RESERVA = 7;
+const resPendiente = c => (c.fondo && c.fondo.activo) ? c.fondo.total - (+S.resPasado || 0) : 0;   // días cerrados, todavía sin pasar
+let temporizadorReserva = null;
+function programarAvisoReserva(pedirPermiso) {
+  clearTimeout(temporizadorReserva);
+  return new Promise(listo => { temporizadorReserva = setTimeout(async () => {
+    const plugins = window.Capacitor && window.Capacitor.Plugins, ln = plugins && plugins.LocalNotifications;
+    if (!(CONFIG.apk && ln) || S.demo) return listo(false);
+    try {
+      await ln.cancel({ notifications: Array.from({ length: DIAS_AVISO_RESERVA }, (_, k) => ({ id: AVISO_RESERVA_ID + k })) });
+      if (!S.modoFondo || S.resAviso === false) return listo(true);
+      let permiso = await ln.checkPermissions();
+      if (permiso.display !== 'granted' && pedirPermiso) permiso = await ln.requestPermissions();
+      if (permiso.display !== 'granted') return listo('permiso');
+      const hoy = hoyISO(), c = calcular(S, hoy), [hh, mm] = (S.resHora || '22:00').split(':').map(Number);
+      const aviso = [];
+      let pendiente = resPendiente(c);
+      for (let k = 0; k < DIAS_AVISO_RESERVA; k++) {
+        const i = c.hoyIdx + k; if (i >= c.dias) break;
+        const sobra = k === 0 ? c.fondo.hoySuma : Math.max(0, c.presupuestoDia(i));
+        pendiente += sobra;
+        const cuando = new Date(); cuando.setDate(cuando.getDate() + k); cuando.setHours(hh, mm, 0, 0);
+        if (cuando <= new Date() || sobra < 1) continue;
+        aviso.push({ id: AVISO_RESERVA_ID + k, title: 'Mi plata · 🏦 A tu reserva',
+          body: 'Hoy te sobraron ' + pesos(sobra) + '. Pasalos a tu reserva de Mercado Pago' + (pendiente - sobra >= 1 ? ' (en total, ' + pesos(pendiente) + ')' : '') + '.',
+          schedule: { at: cuando, allowWhileIdle: true } });
+      }
+      if (aviso.length) await ln.schedule({ notifications: aviso });
+      listo(true);
+    } catch (_) { listo(false); }
+  }, 600); });
+}
+
 /* =====================================================================
    08 · PANTALLAS — arman el HTML de cada pestaña. Solo leen datos y
    devuelven texto; los cambios los hacen las acciones (módulo 09).
@@ -1653,7 +1737,7 @@ const iconoWhatsApp = `<svg width="18" height="18" viewBox="0 0 24 24" fill="cur
 function pantallaHoy(c) {
   const hoy = hoyISO(), editado = S.spent.find(e => e.id === UI.editando);
   const presupuesto = c.quedaHoy + c.gastoHoy;
-  const porcentaje = presupuesto > 0 ? Math.min(100, c.gastoHoy / presupuesto * 100) : 100;
+  const porcentaje = presupuesto > 0 ? Math.max(0, Math.min(100, c.gastoHoy / presupuesto * 100)) : 100;
   const [clase, mensaje] = semaforo(c, S), nombre = nombreUsuario();
   return [
     `<div style="margin:4px 2px 12px"><div style="font-size:20px;font-weight:700">${saludoSegunHora(new Date().getHours())}${nombre ? ', ' + escapar(nombre) : ''}</div>` +
@@ -1663,10 +1747,13 @@ function pantallaHoy(c) {
     /* orden pensado para el uso diario: primero lo que se mira y lo que se hace todos los días */
     tarjetaQuedaHoy(c, clase, mensaje, presupuesto, porcentaje),
     tarjetaAnotarGasto(editado, hoy),          /* SIEMPRE justo debajo de "Te queda para hoy" */
+    tarjetaMeDeben(),
     tarjetaFondo(c),
+    tarjetaReserva(c),
     tarjetaGastosAnotados(),
     tarjetaRacha(),
     tarjetaAvisoCopia(),
+    tarjetaAvisoIPC(),
     tarjetaSaldo(c),
     tarjetaCuentas(c),
     tarjetaRecalibrar(c),
@@ -1767,7 +1854,7 @@ function tarjetaQuedaHoy(c, clase, mensaje, presupuesto, porcentaje) {
   return `<div class="card hero-card"><div class="mut">Te queda para hoy</div><div class="hero-fila"><div class="num ${clase}" style="margin:0;font-size:2.5rem">${pesosConCentavos(c.quedaHoy)}</div>${anillo(porcentaje, clase)}</div>` +
     etiquetaRinde(S.rendDispOn) +
     `<div class="bar ${clase}"><i style="width:${porcentaje}%"></i></div>` +
-    `<div class="mut">Presupuesto de hoy ${pesos(presupuesto)}. Gastaste ${pesos(c.gastoHoy)}.</div>` +
+    `<div class="mut">Presupuesto de hoy ${pesos(presupuesto)}. ${c.gastoHoy < 0 ? 'Entradas de hoy: +' + pesos(-c.gastoHoy) : 'Gastaste ' + pesos(c.gastoHoy)}.</div>` +
     (c.fondo.activo ? `<div class="mut" style="margin-top:4px">Lo que no gastes hoy va a tu fondo: <b class="${c.fondo.hoySuma < 0 ? 'neg' : ''}">${pesosConCentavos(c.fondo.hoySuma)}</b></div>` : '') +
     (c.manana != null ? `<div id="linea-manana" style="margin-top:8px">Mañana tendrás <b class="${c.manana < 0 ? 'neg' : ''}">${pesosConCentavos(c.manana)}</b></div>` : '') +
     (mensaje ? `<div class="${clase}" style="font-weight:600;margin-top:6px">${mensaje}</div>` : '') + '</div>';
@@ -1796,6 +1883,20 @@ function tarjetaFondo(c) {
   return `<div class="card"><div class="mut">Mi fondo de ahorro ${botonOjo()}</div><div class="num">${dinero(f.totalConRend)}</div>` + etiquetaRinde(S.rendOn) +
     `<div class="mut">${detalle}</div>` +
     (f.rend > 0.005 ? `<div class="mut" style="margin-top:4px">Incluye rendimiento estimado: <b>${dinero(f.rend)}</b></div>` : '') + lineaFondo(c) + formulario + lista + '</div>';
+}
+
+/* v9.9.30 · Cartel "Para pasar a tu reserva" */
+function tarjetaReserva(c) {
+  if (!c.fondo.activo) return '';
+  const pendiente = resPendiente(c), hoy = c.fondo.hoySuma;
+  if (pendiente < 1 && hoy < 1) return '';
+  const linea = pendiente >= 1
+    ? `<div class="num" style="font-size:1.8rem;margin:2px 0">${dinero(pendiente)}</div><div class="mut" style="font-size:13px">Es lo que fue al fondo y todavía no pasaste a tu reserva.${hoy >= 1 ? ' Esta noche se suman ' + dinero(hoy) + ' de hoy.' : ''}</div>`
+    : `<div class="mut">Esta noche vas a tener ${dinero(hoy)} para pasar (lo que te sobra de hoy).</div>`;
+  const negativo = pendiente <= -1 ? `<div class="mut" style="color:var(--warn);margin-top:6px">Sacaste del fondo más de lo que tenías sin pasar: retirá ${dinero(-pendiente)} de la reserva para que coincida.</div>` : '';
+  return '<div class="card" style="border-color:var(--ac)"><div class="mut">🏦 Para pasar a tu reserva</div>' + (pendiente <= -1 ? '' : linea) + negativo +
+    (pendiente >= 1 ? '<div class="f" style="margin-top:10px;flex-wrap:wrap"><a class="bt sec" href="https://www.mercadopago.com.ar/" target="_blank" rel="noopener">Abrir Mercado Pago</a>' +
+      '<button data-a="yaPase">✅ Ya lo pasé</button></div>' : '') + '</div>';
 }
 
 function tarjetaSaldo(c) {
@@ -1840,20 +1941,51 @@ function tarjetaCuentas(c) {
 
 function tarjetaAnotarGasto(editado, hoy) {
   const b = UI.borrador;      // lo que ya se escribió pero todavía no se anotó
-  const monto = b.amt !== undefined ? b.amt : (editado ? editado.amt : '');
+  const entrada = UI.modoAnotar === 'entrada';
+  const monto = b.amt !== undefined ? b.amt : (editado ? Math.abs(editado.amt) : '');
   const detalle = b.note !== undefined ? b.note : (editado ? (editado.note || '') : '');
   const fecha = b.date !== undefined ? b.date : (editado ? editado.date : hoy);
-  const categorias = '<div class="f" style="flex-wrap:wrap;gap:6px">' + CATEGORIAS_GASTO.map(([emoji, nombre]) =>
+  const devuelven = b.dev !== undefined ? b.dev : !!(editado && editado.dev);
+  const modos = '<div class="f" style="gap:6px;margin-bottom:8px">' +
+    `<button class="chip${entrada ? '' : ' on'}" data-a="modoAnotar" data-v="gasto" style="flex:1">💸 Gasto</button>` +
+    `<button class="chip${entrada ? ' on' : ''}" data-a="modoAnotar" data-v="entrada" style="flex:1">💰 Entrada</button></div>`;
+  const categorias = entrada ? '' : '<div class="f" style="flex-wrap:wrap;gap:6px">' + CATEGORIAS_GASTO.map(([emoji, nombre]) =>
     `<button class="chip${UI.categoria === nombre ? ' on' : ''}" data-a="categoria" data-v="${nombre}">${emoji} ${nombre}</button>`).join('') + '</div>';
-  const atajos = editado ? '' :
+  const atajos = (editado || entrada) ? '' :
     '<div class="f"><button class="sec" data-a="dictar">🎤 Dictar</button>' +
     (CONFIG.claude ? '<label class="bt">📷 Foto de ticket<input id="ph" type="file" accept="image/*" capture="environment" hidden></label>' : '') + '</div>';
-  return `<div class="card" id="tarjeta-anotar"><h2>${editado ? 'Editar gasto' : 'Anotar gasto'}</h2>` +
-    `<div class="f"><input id="am" inputmode="decimal" placeholder="Monto" value="${escapar(monto)}"><input id="nt" placeholder="Detalle" value="${escapar(detalle)}"></div>` +
-    categorias + atajos +
+  const tilde = entrada ? '' :
+    `<label class="mut" style="display:flex;align-items:center;gap:8px;margin:2px 0 10px;font-size:14px"><input type="checkbox" id="dv" ${devuelven ? 'checked' : ''}>🔁 Me lo devuelven (compré para otros)</label>`;
+  const titulo = entrada ? (editado ? 'Editar entrada' : 'Anotar entrada') : (editado ? 'Editar gasto' : 'Anotar gasto');
+  return `<div class="card" id="tarjeta-anotar"><h2>${titulo}</h2>` + modos +
+    (entrada ? '<div class="mut" style="margin:-2px 0 8px;font-size:13px">Plata que te entra ese día: te la devuelven, te pagan algo, etc. Suma a tu día.</div>' : '') +
+    `<div class="f"><input id="am" inputmode="decimal" placeholder="Monto" value="${escapar(monto)}"><input id="nt" placeholder="${entrada ? '¿De quién? (ej: Orlando)' : 'Detalle'}" value="${escapar(detalle)}"></div>` +
+    categorias + atajos + tilde +
     `<div class="f"><input id="dt" type="date" value="${fecha}"></div>` +
-    `<button data-a="anotar" style="width:100%">${editado ? 'Guardar cambios' : 'Anotar gasto'}</button>` +
+    `<button data-a="anotar" style="width:100%">${editado ? 'Guardar cambios' : titulo}</button>` +
     (editado ? '<button class="sec" data-a="cancelarEdicion" style="width:100%;margin-top:8px">Cancelar</button>' : '') + '</div>';
+}
+
+/* Cómo se ve el monto de un movimiento: entradas en verde con +, lo que te deben marcado */
+function montoMovimiento(e) {
+  if (e.amt < 0) return `<b style="color:var(--ok)">+${pesos(-e.amt)}</b>`;
+  if (e.dev === 1) return `<b>${pesos(e.amt)}</b><br><small style="color:var(--warn)">🔁 te lo deben</small>`;
+  if (e.dev === 2) return `<b class="mut" style="text-decoration:line-through">${pesos(e.amt)}</b><br><small style="color:var(--ok)">✅ devuelto</small>`;
+  return `<b>${pesos(e.amt)}</b>`;
+}
+
+/* Lista "Me deben": compras para otros que todavía no te pagaron */
+function tarjetaMeDeben() {
+  const actuales = S.spent.filter(pendienteDev), previas = S.meDeben || [];
+  if (!actuales.length && !previas.length) return '';
+  const fila = (e, previa) => `<div class="row"><span>${escapar(e.note || 'Sin detalle')}<br><small class="mut">${diaYMes(e.date)}${previa ? ' · período anterior' : ''}</small></span>` +
+    `<span style="text-align:right"><b>${pesos(e.amt)}</b><br>` +
+    `<button class="sec" data-a="cobrado" data-i="${e.id}"${previa ? ' data-p="1"' : ''} style="padding:4px 10px;font-size:13px;margin-top:4px;color:var(--ok);border-color:var(--ok)">✅ Cobrado</button> ` +
+    `<button class="x" data-a="noPagaron" data-i="${e.id}"${previa ? ' data-p="1"' : ''} title="No me lo pagaron">✕</button></span></div>`;
+  const total = suma(actuales, e => e.amt) + suma(previas, e => e.amt);
+  return '<div class="card"><h2>🔁 Me deben</h2><div class="mut" style="margin:-4px 0 8px;font-size:13px">Compras que hiciste para otros. No te bajan el límite del día. Tocá ✅ cuando te paguen, o ✕ si no te lo van a pagar (pasa a ser gasto tuyo).</div>' +
+    actuales.map(e => fila(e, false)).join('') + previas.map(e => fila(e, true)).join('') +
+    '<div style="margin-top:8px">' + filaDoble('Total que te deben', pesos(total)) + '</div></div>';
 }
 
 function tarjetaRecalibrar(c) {
@@ -1865,9 +1997,9 @@ function tarjetaRecalibrar(c) {
 function tarjetaGastosAnotados() {
   const todos = [...S.spent].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
   const lista = UI.verTodos ? todos.slice(0, 60) : todos.slice(0, 5);     // en Hoy se ven los últimos 5
-  const fila = e => `<div class="row"><span style="display:flex;align-items:center">${chipCategoria(e.cat)}<span>${escapar(e.note || e.cat || 'Gasto')}<br><small class="mut">${diaYMes(e.date)}</small></span></span><span><b>${pesos(e.amt)}</b>` +
+  const fila = e => `<div class="row"><span style="display:flex;align-items:center">${chipCategoria(e.cat)}<span>${escapar(e.note || e.cat || 'Gasto')}<br><small class="mut">${diaYMes(e.date)}</small></span></span><span style="text-align:right">${montoMovimiento(e)}` +
     `<button class="x" data-a="editar" data-i="${e.id}">✎</button><button class="x" data-a="borrar" data-i="${e.id}">✕</button></span></div>`;
-  return '<div class="card"><h2>Gastos anotados</h2>' + (lista.length ? lista.map(fila).join('') : '<div class="mut">Todavía no anotaste gastos.</div>') +
+  return '<div class="card"><h2>Gastos y entradas</h2>' + (lista.length ? lista.map(fila).join('') : '<div class="mut">Todavía no anotaste gastos.</div>') +
     (todos.length > 5 ? `<button class="sec" data-a="verTodos" style="width:100%;margin-top:10px">${UI.verTodos ? 'Ver solo los últimos 5' : 'Ver todos (' + todos.length + ')'}</button>` : '') + '</div>';
 }
 
@@ -1886,13 +2018,13 @@ function pantallaDias(c) {
   const hoy = hoyISO();
   const filas = diasDelPeriodo(S, hoy).map(x => {
     const pasado = x.i <= c.hoyIdx || x.gasto;
-    return `<div class="tb${x.i === c.hoyIdx ? ' td' : ''}" data-d="${x.iso}"><span>${estaCerrado(S, x.iso) ? '🔒' : ''}${x.dia.slice(0, 3)} ${diaYMes(x.iso)}</span>` +
+    return `<div class="tb${x.i === c.hoyIdx ? ' td' : ''}" data-d="${x.iso}"><span>${estaCerrado(S, x.iso) ? '🔒' : ''}${feriadoDe(x.iso) ? '🎉' : ''}${x.dia.slice(0, 3)} ${diaYMes(x.iso)}</span>` +
       `<span>${pesos(x.presupuesto)}</span><span>${x.gasto ? pesos(x.gasto) : ''}</span>` +
       `<span class="${pasado && x.sobra < 0 ? 'neg' : ''}">${pasado ? pesos(x.sobra) : ''}</span></div>`;
   }).join('');
   return tarjetaObjetivo(c) + graficoDias(c) + plegable('dias', '<div class="card"><h2>Día por día</h2><div class="mut" style="margin:-4px 0 8px">Tocá un día para ver sus gastos.</div>' +
     '<div class="tb mut"><span>Día</span><span>Presupuesto</span><span>Gasto</span><span>Sobrante</span></div>' + filas +
-    '<div style="margin-top:8px">' + filaDoble('Total gastado', pesos(suma(S.spent.filter(e => !e.meta), e => e.amt))) +
+    '<div style="margin-top:8px">' + filaDoble('Total gastado', pesos(suma(S.spent.filter(cuentaEnDia), e => e.amt))) +
     filaDoble(`Queda del monto disponible ${botonOjo()}`, dinero(c.saldo)) +
     (c.fondo.activo ? filaDoble('Ahorrado en el fondo este período', dinero(c.fondo.ahorroPeriodo)) : '') + '</div></div>', 'día ' + (c.hoyIdx + 1) + ' de ' + c.dias);
 }
@@ -1900,13 +2032,14 @@ function pantallaDias(c) {
 function ventanaDia(iso) {
   const gastos = S.spent.filter(e => e.date === iso).sort((a, b) => a.id - b.id);
   const cierre = (S.cierres || {})[iso], dia = diasDelPeriodo(S, hoyISO()).find(x => x.iso === iso);
-  const total = suma(gastos.filter(e => !e.meta), e => e.amt);
+  const total = suma(gastos.filter(cuentaEnDia), e => e.amt);
   const m = crearModal(
     `<div class="row" style="border:0"><b style="font-size:17px">${dia ? dia.dia : ''} ${diaYMes(iso)}</b><button class="x" id="dx">✕</button></div>` +
     (dia ? `<div class="mut" style="margin-bottom:6px">Presupuesto del día ${pesos(dia.presupuesto)}</div>` : '') +
+    (feriadoDe(iso) ? `<div class="mut" style="margin-bottom:6px">🎉 Feriado: ${feriadoDe(iso)[0]}${feriadoDe(iso)[1] ? ' · sin bancos: Mercado Pago acredita el rendimiento el siguiente día hábil' : ''}</div>` : '') +
     (cierre ? `<div class="mut" style="margin-bottom:6px">🔒 Cerrado: gastado ${pesos(cierre.g)}, sobrante ${pesos(cierre.l)}${Math.abs(cierre.g - total) > 0.5 ? ' <b class="neg">· cambió después del cierre</b>' : ''}</div>` : '') +
     (gastos.length
-      ? gastos.map(e => `<div class="row"><span>${emojiCategoria(e.cat)}${escapar(e.note || e.cat || 'Sin detalle')}</span><span><b>${pesos(e.amt)}</b><button class="x" data-ed="${e.id}">✎</button></span></div>`).join('') + filaDoble('Total del día', pesos(total))
+      ? gastos.map(e => `<div class="row"><span>${emojiCategoria(e.cat)}${escapar(e.note || e.cat || 'Sin detalle')}</span><span style="text-align:right">${montoMovimiento(e)}<button class="x" data-ed="${e.id}">✎</button></span></div>`).join('') + filaDoble('Total del día', pesos(total))
       : '<div class="mut" style="margin:10px 0">No hay gastos anotados este día.</div>'),
     380, 20, 'max-height:80vh;overflow:auto');
   m.onclick = ev => {
@@ -1943,6 +2076,71 @@ function tarjetaIngresos(intro) {
     filaDoble('Total de ingresos', intro ? pesos(totalIngresos(S)) : dinero(totalIngresos(S))) + '</div></div>';
 }
 
+/* ---- v9.9.28 · Actualización por IPC (INDEC) cada 6 meses ----
+   i.ipc = { prox: 'AAAA-MM' (mes desde el que rige el monto nuevo), cada: 6, partes: 2 (cuántos ponen la plata), hist: [] }
+   Nuevo monto = monto × (1 + inflación mes 1) × … × (1 + inflación mes 6).
+   Se usan las 6 inflaciones que el INDEC publicó desde la última actualización (el INDEC publica con un mes de atraso). */
+const IPC_INDEC = { '2026-01': 2.9, '2026-02': 2.9, '2026-03': 3.4, '2026-04': 2.6, '2026-05': 2.1, '2026-06': 1.9,
+  '2026-07': 2.1, '2026-08': 1.7, '2026-09': 1.9 };      // % mensual publicado por el INDEC (se agregan en cada versión)
+const NOMBRES_MES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const sumarMeses = (am, n) => { const [a, m] = am.split('-').map(Number), t = a * 12 + (m - 1) + n; return Math.floor(t / 12) + '-' + dosDigitos(t % 12 + 1); };
+const nombreMes = am => NOMBRES_MES[+am.slice(5) - 1] + ' ' + am.slice(0, 4);
+/* Los meses de inflación que se usan para la actualización que rige desde `prox`: los 6 anteriores a `prox`, corridos 1 mes por el atraso del INDEC */
+const mesesIPC = x => Array.from({ length: x.cada || 6 }, (_, k) => sumarMeses(x.prox, -(x.cada || 6) - 1 + k));
+const ipcToca = (x, hoy) => hoy.slice(0, 7) >= x.prox;
+function lineaIPC(i, k) {
+  if (!i.ipc) return '';
+  const x = i.ipc, partes = x.partes || 1, total = (+i.a || 0) * partes, hoy = hoyISO();
+  return `<div class="mut" style="font-size:12.5px;margin:-4px 0 8px 32px">📈 Se actualiza por IPC cada ${x.cada || 6} meses · próxima: <b>${nombreMes(x.prox)}</b>` +
+    (partes > 1 ? `<br>Total ${pesos(total)} entre ${partes} (${pesos(+i.a || 0)} cada uno)` : '') +
+    (x.pend ? `<br>✅ Ya calculado: ${pesos(x.pend.monto)}${partes > 1 ? ' cada uno' : ''} desde ${nombreMes(x.pend.desde)}` : '') +
+    `<br><button class="sec" data-a="abrirIPC" data-i="${k}" style="padding:4px 12px;font-size:13px;margin-top:4px${ipcToca(x, hoy) ? ';color:var(--warn);border-color:var(--warn)' : ''}">${ipcToca(x, hoy) ? '⚠️ Toca actualizar' : 'Calcular actualización'}</button></div>`;
+}
+function tarjetaAvisoIPC() {
+  const hoy = hoyISO();
+  return S.items.map((i, k) => (i.ipc && ipcToca(i.ipc, hoy)) ?
+    `<div class="card" style="border-color:var(--warn)"><h2>📈 Toca actualizar: ${escapar(i.n)}</h2><div class="mut" style="margin-bottom:8px">Desde ${nombreMes(i.ipc.prox)} el monto se actualiza por IPC del INDEC.</div>` +
+    `<button data-a="abrirIPC" data-i="${k}" style="width:100%">Calcular el monto nuevo</button></div>` : '').join('');
+}
+function ventanaIPC(k) {
+  const i = S.items[k]; if (!i || !i.ipc) return;
+  const x = i.ipc, partes = x.partes || 1, meses = mesesIPC(x), totalAct = (+i.a || 0) * partes;
+  const m = crearModal(
+    `<div class="row" style="border:0"><b style="font-size:17px">📈 Actualizar ${escapar(i.n)}</b><button class="x" id="ix">✕</button></div>` +
+    `<div class="mut" style="margin-bottom:8px;font-size:13px">Inflación mensual del INDEC (%). Los que ya salieron vienen cargados; los que faltan, completalos cuando el INDEC los publique (sale a mitad de cada mes).</div>` +
+    meses.map((am, n) => `<div class="f" style="align-items:center"><span style="flex:1">${nombreMes(am)}</span><input data-ipc="${n}" inputmode="decimal" placeholder="%" value="${IPC_INDEC[am] != null ? String(IPC_INDEC[am]).replace('.', ',') : ''}" style="max-width:100px"></div>`).join('') +
+    `<div id="ires" style="margin:10px 0"></div>` +
+    `<div class="f" style="justify-content:flex-end;margin:0"><button class="sec" id="ino">Cancelar</button><button id="isi">Guardar monto nuevo</button></div>`,
+    380, 20, 'max-height:85vh;overflow:auto');
+  const leer = () => [...m.querySelectorAll('[data-ipc]')].map(c => c.value.trim() === '' ? null : aNumero(c.value));
+  const calcularNuevo = () => {
+    const v = leer(), faltan = v.filter(n => n == null).length;
+    const factor = v.reduce((f, n) => f * (1 + (n || 0) / 100), 1);
+    const total = Math.round(totalAct * factor), cada = Math.round(total / partes);
+    m.querySelector('#ires').innerHTML =
+      filaDoble('Aumento acumulado', ((factor - 1) * 100).toFixed(2).replace('.', ',') + '%') +
+      filaDoble(partes > 1 ? 'Total nuevo' : 'Monto nuevo', '<b>' + pesos(total) + '</b>') +
+      (partes > 1 ? filaDoble('Cada uno pone', '<b>' + pesos(cada) + '</b>') : '') +
+      (faltan ? `<div class="mut" style="color:var(--warn);font-size:13px;margin-top:6px">Faltan ${faltan} ${faltan === 1 ? 'mes' : 'meses'}: es una estimación, no lo guardes todavía.</div>` : '');
+    return { faltan, cada, total, factor };
+  };
+  m.oninput = calcularNuevo; calcularNuevo();
+  m.onclick = async ev => {
+    const id = ev.target.id;
+    if (ev.target === m || id === 'ix' || id === 'ino') return m.remove();
+    if (id !== 'isi') return;
+    const r = calcularNuevo();
+    if (r.faltan && !(await confirmar('Faltan meses de inflación. ¿Guardar igual este monto?'))) return;
+    const rige = x.prox;
+    (x.hist = x.hist || []).push({ desde: rige, antes: +i.a || 0, nuevo: r.cada, pct: +((r.factor - 1) * 100).toFixed(2) });
+    /* Si el período actual ya es del mes en que rige, cambia ahora; si no, queda cargado para el período que viene */
+    if (S.start.slice(0, 7) >= rige) i.a = r.cada; else x.pend = { monto: r.cada, desde: rige };   // queda esperando hasta ese mes
+    x.prox = sumarMeses(rige, x.cada || 6);
+    m.remove(); guardar(); dibujar();
+    aviso((partes > 1 ? 'Nuevo: ' + pesos(r.cada) + ' cada uno (' + pesos(r.total) + ' total)' : 'Nuevo monto: ' + pesos(r.cada)) + ' desde ' + nombreMes(rige));
+  };
+}
+
 function tarjetaGastosImportantes() {
   const lista = S.items.map((i, k) =>
     `<div class="f">` +
@@ -1955,7 +2153,7 @@ function tarjetaGastosImportantes() {
     ((i.n || i.a) && !tieneCuotas(i) ? `<div class="f" style="margin:-4px 0 6px 32px;flex-wrap:wrap;gap:4px 14px">` +
       `<label class="mut" style="margin:0;font-size:13px;display:flex;align-items:center;gap:6px"><input type="checkbox" data-f="itemRepite" data-k="${k}" ${i.f !== false ? 'checked' : ''}>🔁 Repetir el mes que viene</label>` +
       (i.f !== false ? `<label class="mut" style="margin:0;font-size:13px;display:flex;align-items:center;gap:6px"><input type="checkbox" data-f="itemVariable" data-k="${k}" ${i.v ? 'checked' : ''}>✏️ El monto cambia (queda vacío)</label>` : '') +
-      `</div>` : '') + lineaDeCuotas(i, k)).join('');
+      `</div>` : '') + lineaDeCuotas(i, k) + lineaIPC(i, k)).join('');
   return '<div class="card"><h2>🧾 Pagar al cobrar</h2><div class="mut" style="margin-bottom:8px">Lo primero que se paga cuando cobrás. Tildá 🔁 en los fijos de todos los meses; si el monto cambia (luz, gas), tildá también ✏️ y el mes que viene aparecen con el monto vacío.</div>' + lista +
     '<button class="sec" data-a="agregarGasto">Agregar gasto</button></div>';
 }
@@ -2119,7 +2317,9 @@ function pantallaAjustes(c) {
     plegable('nuevoperiodo', tarjetaNuevoPeriodo(c), ''),
     plegable('cierres', tarjetaCierreNocturno(), nCierres + (nCierres === 1 ? ' cierre' : ' cierres')),
     plegable('copias', tarjetaNube(), textoCopia()), plegable('exportar', tarjetaExcel(), ''),
+    plegable('novedades', tarjetaNovedades(), 'versión ' + VERSION),
     plegable('acerca', tarjetaAcercaDe(), ''),
+    S.demo ? '' : tarjetaColabora(),
     S.demo ? '' : tarjetaDemo(),
     S.demo ? '' : '<div class="card"><h2>Empezar de cero</h2><button class="sec" data-a="borrarTodo">Borrar todo</button></div>'].join('');
 }
@@ -2134,6 +2334,56 @@ function tarjetaDemo() {
   return '<div class="card"><h2>🎬 Modo demo</h2>' +
     '<div class="mut" style="margin-bottom:10px">Carga datos de ejemplo para grabar videos o sacar capturas sin mostrar tu plata. Tus datos reales se guardan aparte y vuelven cuando salís.</div>' +
     '<button class="sec" data-a="activarDemo">Activar modo demo</button></div>';
+}
+
+/* v9.9.31 · Colaborá con el creador (transferencia al alias) */
+const ALIAS_COLABORA = 'MartinchoLujanino';
+function tarjetaColabora() {
+  return '<div class="card" style="border:2px solid var(--ac)"><h2>💚 Colaborá con el creador</h2>' +
+    '<div class="mut" style="margin-bottom:10px">Mi plata es gratis y sin publicidad. Si te ayuda a llegar a fin de mes y querés darme una mano para seguir mejorándola, podés mandarme lo que quieras al alias. ¡Gracias! 🙌</div>' +
+    '<div style="font-size:1.25rem;font-weight:700;margin:4px 0 10px">' + ALIAS_COLABORA + '</div>' +
+    '<button data-a="copiarAlias" style="width:100%">📋 Copiar alias</button></div>';
+}
+
+/* v9.9.31 · Novedades: qué trae cada versión (la más nueva arriba) */
+const NOVEDADES = [      // armado con el historial del repositorio de GitHub (desde la 9.0) y lo que contó el autor
+  ['9.9.31', ['💚 Cartel para colaborar con el creador (alias para transferir).', '📋 Esta lista de novedades en Ajustes.']],
+  ['9.9.30', ['🔔 Aviso en el teléfono cada noche: cuánto te sobró del día para pasar a tu reserva de Mercado Pago.', '🏦 Cartel "Para pasar a tu reserva" en Hoy, con "Abrir Mercado Pago" y "Ya lo pasé".']],
+  ['9.9.29', ['🛠️ Arreglo: el fondo de ahorro ya no arranca en negativo por retiros de un período anterior.']],
+  ['9.9.28', ['💰 Botón "Entrada" para anotar plata que te entra un día (se ve en verde con +).', '🔁 "Me lo devuelven" y lista "Me deben" para compras que hacés para otros.',
+    '🎉 Feriados nacionales y de Mendoza en Días; el rendimiento no se acredita en feriados bancarios.', '📈 Actualización por IPC cada 6 meses en los gastos que la necesitan (ej. Alejandro).',
+    '🌙 Se lee lo que escribís con el teléfono en modo oscuro.']],
+  ['9.9.27', ['📂 Secciones plegables: la lista de días, los gastos y las copias se abren al tocarlas.']],
+  ['9.9.26', ['✏️ En "Para el próximo período", un cuadrito para cargar el monto de los gastos que se repiten.']],
+  ['9.9.25', ['↑ "Rinde X%" en verde en la pantalla Hoy, como en Mercado Pago.', '📅 El rendimiento se acredita en días hábiles (lo del fin de semana llega el lunes).']],
+  ['9.9.23', ['💸 Rendimiento estimado también sobre tu dinero disponible.']],
+  ['9.9.22', ['🏦 Rendimiento estimado del fondo de ahorro con la tasa de Mercado Pago.']],
+  ['9.9.21', ['🔁 Los gastos marcados para repetir y las cuotas que siguen pasan solos al período siguiente.']],
+  ['9.9.20', ['🗓️ "Para el próximo período": anotar gastos del mes que viene sin que descuenten de este.']],
+  ['9.9.18', ['🐷 Retiros del fondo "para gastar hoy" (suman a tu día) o "para cubrir un gasto".']],
+  ['9.9.17', ['🛠️ Un gasto importante nuevo o un aumento se descuenta desde ese día, no desde el día 1.', '🛠️ El fondo cuenta desde el día en que lo activás: no toca la plata que ya tenías.']],
+  ['9.9.15', ['🐷 Fondo de ahorro: lo que no gastás cada día se guarda aparte.', '🎨 Diseño nuevo: más redondeado, anillo de progreso, categorías con íconos de colores y gráfico de días.']],
+  ['9.9.12', ['🎤 Dictado por voz para anotar gastos.']],
+  ['9.9.6 a 9.9.11', ['🎬 Modo demo con datos de ejemplo y demo automática para grabar videos.']],
+  ['9.9.3', ['☕ Versión pública con el link de Cafecito.']],
+  ['9.9.2', ['🎯 El objetivo por día pasa a ser tu límite oficial (escribís el número y listo).']],
+  ['9.9.1', ['🎯 "Mi objetivo por día" en la solapa Días.', '✍️ "Anotar gasto" siempre debajo de "Te queda para hoy" y visible con el teclado abierto.']],
+  ['9.9', ['📲 Widget para la pantalla de inicio.', '🖼️ Ícono nuevo.', '👁️ Ocultar montos pasa a ser opcional.']],
+  ['9.8', ['📊 Exportar a Excel y PDF.', '🔔 Recordatorio diario para anotar gastos.', '📱 Guardar copias en el teléfono.', '🔑 Las actualizaciones se instalan encima de la anterior (clave fija).']],
+  ['9.7', ['🎯 "Mi objetivo por día": cuánto querés gastar y cuánto te sobra para ahorrar.']],
+  ['9.6', ['➕ Botón flotante para anotar un gasto rápido.', '👋 Pantallas de bienvenida para empezar.']],
+  ['9.3', ['🏷️ Categorías de gasto.', '💾 Copias de seguridad (exportar e importar) y aviso para hacerlas.', '🔥 Racha de días en verde.']],
+  ['9.0', ['📱 App de Android (APK) compilada con GitHub Actions.', '💳 Gastos en cuotas, metas de ahorro, comparación con tus cuentas y cierre de cada noche.']],
+  ['4.3 a 8.x', ['🧹 Se sacó la sincronización con la nube: tus datos quedan solo en tu teléfono.']],
+  ['4.2', ['🔒 PIN de seguridad.']],
+  ['4.1', ['🎨 Selector de tema y colores, y tu nombre en el saludo.']],
+  ['4.0', ['📊 Barra de progreso del día.', '👋 Saludo con tu nombre y una frase corta.']],
+  ['1.0', ['🌱 Primera versión, como app web instalable (PWA), con las reglas de la planilla de sueldo: límite por día, lo que sobra pasa a mañana y si te pasás se descuenta.']],
+];
+function tarjetaNovedades() {
+  return '<div class="card"><h2>📋 Novedades por versión</h2>' + NOVEDADES.map(([v, cosas], k) =>
+    `<div style="margin:${k ? '12px' : '2px'} 0 4px;font-weight:700">Versión ${v}${k === 0 ? ' <span class="mut" style="font-weight:400">· la que tenés</span>' : ''}</div>` +
+    cosas.map(t => `<div class="mut" style="font-size:14px;margin:2px 0 2px 6px">${t}</div>`).join('')).join('') + '</div>';
 }
 
 function tarjetaAcercaDe() {
@@ -2183,13 +2433,16 @@ function tarjetaModoFondo() {
     `<div class="f"><input type="checkbox" data-f="modoFondo"${on ? ' checked' : ''}><span>Activar el fondo de ahorro</span></div>` +
     (on ? '<label>Si me paso del límite de un día</label><select data-f="fondoExceso">' +
       opcion('siguiente', 'Se descuenta del día siguiente') + opcion('aparte', 'No se descuenta de ningún lado') + '</select>' +
-      `<label>Fondo que ya tenías juntado de antes</label><input type="${campoDinero()}" data-f="fondoPrev" inputmode="decimal" value="${S.fondoPrev || ''}" placeholder="Monto">` : '') +
+      `<label>Fondo que ya tenías juntado de antes</label><input type="${campoDinero()}" data-f="fondoPrev" inputmode="decimal" value="${S.fondoPrev || ''}" placeholder="Monto">` +
+      `<div class="f" style="margin-top:12px"><input type="checkbox" data-f="resAviso"${S.resAviso === false ? '' : ' checked'}><span>🔔 Avisarme cada noche cuánto pasar a mi reserva de Mercado Pago</span></div>` +
+      (S.resAviso === false ? '' : `<label>¿A qué hora?</label><input type="time" data-f="resHora" value="${S.resHora || '22:00'}">`) +
+      `<label>Ya pasé a la reserva (en total)</label><input type="${campoDinero()}" data-f="resPasado" inputmode="decimal" value="${S.resPasado || ''}" placeholder="0">` : '') +
     '</div>';
 }
 function tarjetaRendimiento() {
   const hay = !!(S.rendOn || S.rendDispOn);
   return '<div class="card"><h2>Rendimiento de Mercado Pago</h2>' +
-    '<div class="mut" style="margin-bottom:8px">Tu plata va sumando sola lo que rendiría con la tasa que pongas. Funciona como Mercado Pago: el interés se acredita en días hábiles (lo del fin de semana llega el lunes) y se vuelve a sumar al día siguiente. No contempla feriados. Es una estimación: lo que manda es lo que ves en Mercado Pago. Activalo cuando tu plata esté en Mercado Pago.</div>' +
+    '<div class="mut" style="margin-bottom:8px">Tu plata va sumando sola lo que rendiría con la tasa que pongas. Funciona como Mercado Pago: el interés se acredita en días hábiles (lo del fin de semana llega el lunes) y se vuelve a sumar al día siguiente. Tiene en cuenta los feriados bancarios. Es una estimación: lo que manda es lo que ves en Mercado Pago. Activalo cuando tu plata esté en Mercado Pago.</div>' +
     `<div class="f"><input type="checkbox" data-f="rendDispOn"${S.rendDispOn ? ' checked' : ''}><span>Sumar rendimiento a mi dinero disponible</span></div>` +
     (S.modoFondo ? `<div class="f"><input type="checkbox" data-f="rendOn"${S.rendOn ? ' checked' : ''}><span>Sumar rendimiento a mi fondo de ahorro</span></div>` : '') +
     (hay ? '<label>Tasa anual (TNA) en %</label>' +
@@ -2328,26 +2581,85 @@ const ACCIONES = {
   async anotar() {
     const monto = aNumero(valorDe('am'));
     if (!monto) return SIN_GUARDAR;
-    const gasto = { date: valorDe('dt') || hoyISO(), amt: monto, note: valorDe('nt'), cat: UI.categoria || undefined };
+    const entrada = UI.modoAnotar === 'entrada', marca = document.getElementById('dv');
+    const gasto = { date: valorDe('dt') || hoyISO(), amt: entrada ? -Math.abs(monto) : Math.abs(monto), note: valorDe('nt'),
+                    cat: entrada ? undefined : (UI.categoria || undefined), dev: (!entrada && marca && marca.checked) ? 1 : undefined };
     if (estaCerrado(S, gasto.date) && !(await confirmar('Ese día ya está cerrado. ¿Anotarlo igual?'))) return SIN_GUARDAR;
     if (UI.editando) {
       const existente = S.spent.find(e => e.id === UI.editando);
-      if (existente) Object.assign(existente, gasto);
+      if (existente) {
+        if (gasto.dev && existente.dev === 2) gasto.dev = 2;          // si ya estaba cobrado, sigue cobrado
+        Object.assign(existente, gasto);
+        if (!existente.dev) delete existente.dev;
+        if (!existente.cat) delete existente.cat;
+      }
       UI.editando = null;
-    } else S.spent.push({ id: Date.now(), ...gasto });
-    UI.borrador = {}; UI.categoria = '';
+    } else { const nuevo = { id: Date.now(), ...gasto }; if (!nuevo.dev) delete nuevo.dev; if (!nuevo.cat) delete nuevo.cat; S.spent.push(nuevo); }
+    if (entrada) aviso('Entrada anotada: +' + pesos(Math.abs(monto)));
+    else if (gasto.dev) aviso('Anotado en "Me deben". No te baja el límite del día.');
+    UI.borrador = {}; UI.categoria = ''; UI.modoAnotar = 'gasto';
   },
   categoria(el) {      // elegir o quitar la categoría sin perder lo que ya se escribió
-    UI.borrador = { amt: valorDe('am'), note: valorDe('nt'), date: valorDe('dt') };
+    const marca = document.getElementById('dv');
+    UI.borrador = { amt: valorDe('am'), note: valorDe('nt'), date: valorDe('dt'), dev: marca ? marca.checked : undefined };
     UI.categoria = UI.categoria === el.dataset.v ? '' : el.dataset.v;
     dibujar(); return SIN_GUARDAR;
   },
   editar(el) {
     const gasto = S.spent.find(e => e.id === +el.dataset.i);
     UI.editando = +el.dataset.i; UI.borrador = {}; UI.categoria = (gasto && gasto.cat) || '';
+    UI.modoAnotar = gasto && gasto.amt < 0 ? 'entrada' : 'gasto';
     dibujar(); document.getElementById('am').focus(); return SIN_GUARDAR;
   },
-  cancelarEdicion() { UI.editando = null; UI.borrador = {}; UI.categoria = ''; dibujar(); return SIN_GUARDAR; },
+  cancelarEdicion() { UI.editando = null; UI.borrador = {}; UI.categoria = ''; UI.modoAnotar = 'gasto'; dibujar(); return SIN_GUARDAR; },
+  modoAnotar(el) {      // cambiar entre Gasto y Entrada sin perder lo que ya se escribió
+    UI.borrador = { amt: valorDe('am'), note: valorDe('nt'), date: valorDe('dt') };
+    UI.modoAnotar = el.dataset.v === 'entrada' ? 'entrada' : 'gasto';
+    if (UI.modoAnotar === 'entrada') UI.categoria = '';
+    dibujar(); return SIN_GUARDAR;
+  },
+  abrirIPC(el) { ventanaIPC(+el.dataset.i); return SIN_GUARDAR; },
+  async copiarAlias() {
+    try { await navigator.clipboard.writeText(ALIAS_COLABORA); aviso('Alias copiado: ' + ALIAS_COLABORA + ' 🙌'); }
+    catch (_) { aviso('Alias: ' + ALIAS_COLABORA + ' (copialo a mano)'); }
+    return SIN_GUARDAR;
+  },
+  async yaPase() {
+    const c = calcular(S, hoyISO()), pendiente = Math.round(resPendiente(c));
+    const m = crearModal('<div style="font-weight:700;margin-bottom:6px">¿Cuánto pasaste a la reserva?</div>' +
+      `<input id="rp" inputmode="decimal" value="${pendiente}"><div class="f" style="justify-content:flex-end;margin:10px 0 0"><button class="sec" id="rpn">Cancelar</button><button id="rps">Listo</button></div>`, 340);
+    m.onclick = ev => {
+      if (ev.target === m || ev.target.id === 'rpn') return m.remove();
+      if (ev.target.id !== 'rps') return;
+      const monto = aNumero(m.querySelector('#rp').value) || 0;
+      m.remove(); if (monto <= 0) return;
+      S.resPasado = Math.round(((+S.resPasado || 0) + monto) * 100) / 100;
+      guardar(); dibujar(); aviso('Anotado: pasaste ' + pesos(monto) + ' a tu reserva 👏');
+    };
+    return SIN_GUARDAR;
+  },
+  /* --- me deben --- */
+  cobrado(el) {
+    const id = +el.dataset.i;
+    if (el.dataset.p) {        // del período anterior: la plata entra hoy como una entrada
+      const x = (S.meDeben || []).find(e => e.id === id); if (!x) return SIN_GUARDAR;
+      S.meDeben = S.meDeben.filter(e => e.id !== id);
+      S.spent.push({ id: Date.now(), date: hoyISO(), amt: -Math.abs(x.amt), note: 'Me devolvieron: ' + (x.note || '') });
+    } else {
+      const e = S.spent.find(x => x.id === id); if (!e) return SIN_GUARDAR;
+      e.dev = 2; e.cob = hoyISO();
+    }
+    aviso('¡Cobrado! 👍');
+  },
+  async noPagaron(el) {
+    const id = +el.dataset.i;
+    if (!(await confirmar('¿No te lo van a pagar? Pasa a ser un gasto tuyo.'))) return SIN_GUARDAR;
+    if (el.dataset.p) {        // del período anterior: ya estaba descontado de tu saldo, solo se saca de la lista
+      S.meDeben = (S.meDeben || []).filter(e => e.id !== id);
+    } else {
+      const e = S.spent.find(x => x.id === id); if (e) { delete e.dev; delete e.cob; }
+    }
+  },
   async borrar(el) {
     const gasto = S.spent.find(x => x.id == el.dataset.i);
     if (gasto && estaCerrado(S, gasto.date) && !(await confirmar('Ese día ya está cerrado. ¿Borrarlo igual?'))) return SIN_GUARDAR;
@@ -2574,6 +2886,14 @@ const CAMBIOS = {
     });
   },
   recHora:       v => { if (v) { S.recHora = v; if (S.recOn) programarRecordatorio(true); } },
+  resAviso:      (v, el) => {
+    S.resAviso = el.checked;
+    programarAvisoReserva(true).then(r => {
+      if (r === 'permiso') { S.resAviso = false; guardar(); dibujar(); aviso('Falta el permiso de notificaciones: activalo en los ajustes del teléfono.'); }
+    });
+  },
+  resHora:       v => { if (v) S.resHora = v; },
+  resPasado:     v => { S.resPasado = Math.max(0, aNumero(v) || 0); },
   diasCopia:     v => { S.diasCopia = Math.max(0, Math.round(aNumero(v))); },
   previo:        v => { S.previo = aNumero(v); },
   modoFondo:     (v, el) => { S.modoFondo = el.checked; if (el.checked) S.fondoDesde = hoyISO(); UI.usandoFondo = false; },
@@ -2959,6 +3279,7 @@ function iniciar() {
   dibujar();
   if (S.demo) aviso('Modo demo activo: son datos de ejemplo. Salí desde Ajustes.');
   if (S.recOn) programarRecordatorio(false);
+  if (S.modoFondo) programarAvisoReserva(false);
   actualizarWidgetResumen();
   iniciarNube().then(() => cerrarDias());
   programarCierreNocturno();
