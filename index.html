@@ -606,6 +606,11 @@ function ajustarCuentasDemo() {
      desde su fecha, repartidos entre los días que faltan.
    - Lo que se aparta para una meta (gasto con `meta`) sale de la plata
      disponible, no del presupuesto de un día. */
+/* v9.9.35 · Mis planes: lo que se descuenta en este período (la última cuota redondea para que cierre justo) */
+function cuotaPlan(x) {
+  const m = Math.max(1, Math.round(+x.meses || 1)), total = +x.total || 0, comun = Math.round(total / m), hechas = Math.round(+x.hechas || 0);
+  return hechas >= m - 1 ? total - comun * (m - 1) : comun;
+}
 function calcular(S, hoy) {
   const total        = suma(S.items, montoDe);
   /* Un aumento de monto en un gasto ya cargado (i.x = [{ amt, desde }]) se descuenta
@@ -614,11 +619,15 @@ function calcular(S, hoy) {
   const montoBase    = i => montoDe(i) - suma(aumentosDe(i), x => +x.amt || 0);
   const totalBase    = suma(S.items.filter(i => !i.d), montoBase);
   const porPagar     = suma(S.items.filter(i => !i.p), montoDe);
+  /* v9.9.35 · Mis planes activos: como un gasto prioritario (desde el cobro, o desde el día en que se activaron) */
+  const planesActivos = (S.planes || []).filter(x => x.activo && !x.fin);
+  const planesBase   = suma(planesActivos.filter(x => !x.desde || x.desde <= S.start), cuotaPlan);
   const descuentos   = (S.ajustes || []).concat(
     S.items.filter(i => i.d).map(i => ({ amt: -montoBase(i), desde: i.d })),
-    S.items.reduce((l, i) => l.concat(aumentosDe(i).map(x => ({ amt: -(+x.amt || 0), desde: x.desde }))), []));
+    S.items.reduce((l, i) => l.concat(aumentosDe(i).map(x => ({ amt: -(+x.amt || 0), desde: x.desde }))), []),
+    planesActivos.filter(x => x.desde && x.desde > S.start).map(x => ({ amt: -cuotaPlan(x), desde: x.desde })));
   const aportes      = suma(S.spent.filter(e => e.meta), e => e.amt);
-  const dispBase     = (+S.sueldo || 0) + (+S.previo || 0) - totalBase - aportes;
+  const dispBase     = (+S.sueldo || 0) + (+S.previo || 0) - totalBase - planesBase - aportes;
   let disp           = dispBase + suma(descuentos, x => x.amt);
 
   const dias    = Math.max(1, numeroDeDia(S.end) - numeroDeDia(S.start));
@@ -863,6 +872,15 @@ function iniciarPeriodo(S, hoy, { sueldo, previo, inicio, fin }) {
   if (c.fondo.activo) { S.fondoPrev = redondear2(c.fondo.total); S.fondoRetirado = redondear2((+S.fondoRetirado || 0) + c.fondo.usos); S.fondoUsos = [];
     if (S.rendOn) { S.rendPrev = redondear2(c.fondo.rend + (c.fondo.rendPend || 0)); S.rendDesde = inicio; } }
   const terminadas = avanzarCuotas(S);
+  /* v9.9.35 · Mis planes: los activos suman una cuota descontada; si era la última, quedan cumplidos y se borran */
+  if (Array.isArray(S.planes)) {
+    S.planes.forEach(x => {
+      if (!x.activo || x.fin) return;
+      x.hechas = (+x.hechas || 0) + 1; x.p = false; delete x.desde; delete x.pMed; delete x.pMonto;
+      if (x.hechas >= Math.max(1, +x.meses || 1)) { x.fin = true; x.activo = false; terminadas.push('el plan ' + (x.n || 'sin nombre')); }
+    });
+    S.planes = S.planes.filter(x => !x.fin);
+  }
   /* Gastos fijos: los que no tienen el tilde de repetir se sacan (salvo los que están en cuotas);
      los marcados con "el monto cambia" quedan con el monto vacío. Los gastos de versiones viejas se mantienen. */
   S.items = S.items.filter(i => tieneCuotas(i) || i.f !== false);
@@ -994,7 +1012,7 @@ function fraseDeEstado(c, clase) {
    02b · EXPORTAR — Excel (.xlsx) y PDF armados a mano, sin librerías
    (la app tiene que funcionar sin internet). Funciones puras.
    ===================================================================== */
-const VERSION_APP = '9.9.34';
+const VERSION_APP = '9.9.35';
 const aBytes = txt => new TextEncoder().encode(txt);
 const aBase64 = bytes => {
   let b = '';
@@ -2040,6 +2058,14 @@ function moverCuentasPorGastos(antes) {
     if (i >= 0) l[i].m = r2((+l[i].m || 0) + dEf); else l.push({ n: 'Efectivo', m: r2(dEf) });
   }
 }
+/* Suma (o resta) a Mercado Pago ('mp') o a Efectivo ('ef') en Mis cuentas */
+function moverCuenta(medio, monto) {
+  const l = S.cuentas; if (!l || !l.length) return;
+  const nombre = c => String(c.n || '').toLowerCase(), r2 = v => Math.round(v * 100) / 100;
+  let i = medio === 'ef' ? l.findIndex(c => nombre(c).includes('efectivo')) : l.findIndex(c => nombre(c).includes('mercado'));
+  if (i < 0 && medio !== 'ef') i = l.findIndex(c => !c.x && !nombre(c).includes('efectivo') && !nombre(c).includes('reserva'));
+  if (i >= 0) l[i].m = r2((+l[i].m || 0) + monto); else if (medio === 'ef') l.push({ n: 'Efectivo', m: r2(monto) });
+}
 const ACCIONES_QUE_MUEVEN_CUENTAS = ['anotar', 'borrar', 'cobrado', 'noPagaron'];
 
 /* Lista "Me deben": compras para otros que todavía no te pagaron */
@@ -2133,6 +2159,40 @@ function ventanaDia(iso) {
 }
 
 /* ------------------------------ PLAN: ingresos, gastos importantes, cuotas y metas ------------------------------ */
+/* v9.9.35 · Mis planes: gastos que tenés en mente (arreglar el auto, una compra grande). Con ❌ no tocan tu plata;
+   con ✅ se descuentan como un gasto prioritario, repartidos entre los días que quedan desde hoy. Se pueden pagar en varios meses. */
+function resumenPlanes() {
+  const l = S.planes || [], act = l.filter(x => x.activo && !x.fin);
+  if (!l.length) return '';
+  return l.length + (l.length === 1 ? ' plan' : ' planes') + (act.length ? ' · activos ' + dinero(suma(act, cuotaPlan)) : ' · ninguno activo');
+}
+function tarjetaPlanes(c) {
+  const l = S.planes || [];
+  const ed = UI.planEditando, editado = ed && ed !== 'nuevo' ? l.find(x => x.id === ed) : null;
+  const form = ed ? '<div style="margin-top:10px;padding:12px;border:1px solid var(--ac);border-radius:10px">' +
+      `<label>¿Qué querés hacer o comprar?</label><input id="pln" placeholder="Ej.: arreglar el radiador del auto" value="${escapar(editado ? editado.n || '' : '')}">` +
+      `<label>¿Cuánto sale? (si no sabés, dejalo vacío)</label><input id="plt" inputmode="decimal" placeholder="Monto" value="${editado && editado.total ? editado.total : ''}">` +
+      `<label>¿En cuántos meses lo querés pagar?</label><input id="plm" inputmode="numeric" value="${editado ? editado.meses || 1 : 1}">` +
+      (editado && editado.activo ? '<div class="mut" style="font-size:13px;margin-top:4px">Está activo: si cambiás el monto, se ajusta lo que se descuenta.</div>' : '') +
+      '<div class="f" style="margin:10px 0 0"><button class="sec" data-a="cancelarPlan">Cancelar</button><button data-a="guardarPlan">Guardar</button></div></div>'
+    : '<div class="f" style="margin-top:8px"><button class="sec" data-a="nuevoPlan">+ Agregar plan</button></div>';
+  const fila = x => {
+    const total = +x.total || 0, m = Math.max(1, +x.meses || 1), cuota = cuotaPlan(x);
+    const estado = x.activo ? (x.p ? '✅ Activo · pagado' : '✅ Activo · pendiente') : '❌ Desactivado';
+    const detalle = !total ? 'Monto a definir. Cuando sepas cuánto sale, tocá ✏️ y cargá el monto para poder activarlo.'
+      : (m > 1 ? `En ${m} meses · cuota ${Math.min(m, (+x.hechas || 0) + 1)} de ${m}: ${dinero(cuota)}` : 'Un solo pago: ' + dinero(total)) +
+        (x.activo ? ` · se descuenta ${dinero(cuota)} en este período (≈ ${dinero(cuota / Math.max(1, c.dias))} por día)` : '');
+    return '<div style="padding:10px 0;border-top:1px solid var(--bd)">' +
+      `<div class="row"><span><b>${escapar(x.n || 'Plan sin nombre')}</b><br><small class="mut">${estado}</small></span><span>${total ? dinero(total) : '—'}</span></div>` +
+      `<div class="mut" style="font-size:13px;margin:4px 0 6px">${detalle}</div><div class="f" style="flex-wrap:wrap;gap:6px">` +
+      (total ? `<button class="${x.activo ? 'sec' : ''}" data-a="activarPlan" data-i="${x.id}">${x.activo ? '❌ Desactivar' : '✅ Activar'}</button>` : '') +
+      (x.activo ? `<button class="sec" data-a="pagarPlan" data-i="${x.id}">${x.p ? '↩️ Pendiente' : '💳 Pagado'}</button>` : '') +
+      `<button class="sec" data-a="editarPlan" data-i="${x.id}">✏️</button><button class="sec" data-a="borrarPlan" data-i="${x.id}">🗑️</button></div></div>`;
+  };
+  return '<div class="card"><h2>🎯 Mis planes</h2><div class="mut" style="font-size:13px;margin-bottom:6px">Gastos que tenés en mente. Con ❌ no tocan tu plata; con ✅ se descuentan como un gasto prioritario, repartidos entre los días que quedan. Se pueden pagar en varios meses (una cuota por período).</div>' +
+    (l.length ? l.map(fila).join('') : '<div class="mut">Todavía no anotaste planes.</div>') + form + '</div>';
+}
+
 function pantallaPlan(c) {
   const resumen = '<div class="card"><h2>Resumen del mes</h2>' + filaDoble('Total de ingresos', dinero(totalIngresos(S))) +
     filaDoble('Total gastos importantes', pesos(c.total)) + filaDoble('Todavía por pagar', pesos(c.porPagar)) +
@@ -2143,6 +2203,7 @@ function pantallaPlan(c) {
     plegable('gastos', tarjetaGastosImportantes(), cuenta(nGastos, 'gasto', 'gastos')) +
     plegable('proximo', tarjetaProximos(), cuenta(nProx, 'gasto', 'gastos')) +
     plegable('cuotas', tarjetaCuotas(), nCuotas ? cuenta(nCuotas, 'en curso', 'en curso') : '') +
+    plegable('planes', tarjetaPlanes(c), resumenPlanes()) +
     resumen + plegable('metas', tarjetaMetas(), (S.metas || []).length ? cuenta((S.metas || []).length, 'meta', 'metas') : '');
 }
 
@@ -2430,6 +2491,9 @@ function tarjetaColabora() {
 
 /* v9.9.31 · Novedades: qué trae cada versión (la más nueva arriba) */
 const NOVEDADES = [      // armado con el historial del repositorio de GitHub (desde la 9.0) y lo que contó el autor
+  ['9.9.35', ['🎯 Mis planes (en Plan): anotá los gastos que tenés en mente, como arreglar el auto o una compra grande.',
+              'Con ❌ no tocan tu plata. Con ✅ se descuentan como un gasto prioritario, repartidos entre los días que quedan desde hoy.',
+              'Se pueden pagar en varios meses (una cuota por período) y marcar pagados con Mercado Pago o Efectivo. Al empezar el período nuevo, los cumplidos se borran solos.']],
   ['9.9.34', ['📈 Cuando cambia la tasa, vale desde ese día: los días que ya pasaron no se recalculan (como en Mercado Pago).',
               '📈 Tasa de Mercado Pago automática: la app baja sola la TNA de Mercado Fondo (datos de la CNV). Se apaga si escribís la tasa a mano.',
               '🧾 Saldo corrido: debajo de cada gasto ves cuánta plata te quedaba en tus cuentas.']],
@@ -2887,6 +2951,57 @@ const ACCIONES = {
     if (!(await confirmar('¿Quitar este retiro? El monto vuelve al fondo.'))) return SIN_GUARDAR;
     const [uso] = S.fondoUsos.splice(+el.dataset.i, 1);
     if (uso && uso.resBaja) S.resPasado = Math.round(((+S.resPasado || 0) + (+uso.resBaja || 0)) * 100) / 100;
+  },
+
+  /* --- mis planes (v9.9.35) --- */
+  nuevoPlan() { UI.planEditando = 'nuevo'; UI.abiertos.planes = true; dibujar(); return SIN_GUARDAR; },
+  editarPlan(el) { UI.planEditando = +el.dataset.i; UI.abiertos.planes = true; dibujar(); return SIN_GUARDAR; },
+  cancelarPlan() { UI.planEditando = null; dibujar(); return SIN_GUARDAR; },
+  guardarPlan() {
+    const n = valorDe('pln').trim(), total = Math.max(0, aNumero(valorDe('plt')) || 0), meses = Math.min(24, Math.max(1, Math.round(aNumero(valorDe('plm')) || 1)));
+    if (!n && !total) return SIN_GUARDAR;
+    const l = (S.planes = S.planes || []);
+    if (UI.planEditando === 'nuevo') l.push({ id: Date.now(), n, total, meses, activo: false, hechas: 0, p: false });
+    else { const x = l.find(p => p.id === UI.planEditando); if (x) { x.n = n; x.total = total; x.meses = meses; if (!total) { x.activo = false; delete x.desde; } } }
+    UI.planEditando = null;
+    aviso(total ? 'Plan guardado. Activalo cuando quieras que se descuente.' : 'Plan guardado. Lo vas a poder activar cuando le cargues cuánto sale.');
+  },
+  async borrarPlan(el) {
+    if (!(await confirmar('¿Borrar este plan?'))) return SIN_GUARDAR;
+    const x = (S.planes || []).find(p => p.id === +el.dataset.i);
+    if (x && x.p && x.pMed && x.pMonto) moverCuenta(x.pMed, +x.pMonto);         // la plata que bajó al pagarlo vuelve
+    S.planes = (S.planes || []).filter(p => p.id !== +el.dataset.i);
+  },
+  activarPlan(el) {        // activar: se descuenta desde hoy (o desde el cobro si el período no empezó). Desactivar: la plata vuelve.
+    const x = (S.planes || []).find(p => p.id === +el.dataset.i); if (!x) return SIN_GUARDAR;
+    const on = !x.activo, hoy = hoyISO();
+    if (x.p && x.pMed && x.pMonto) moverCuenta(x.pMed, +x.pMonto);
+    x.activo = on; x.p = false; delete x.pMed; delete x.pMonto;
+    if (on && numeroDeDia(hoy) > numeroDeDia(S.start)) x.desde = isoDeNumero(Math.min(numeroDeDia(hoy), numeroDeDia(S.end) - 1)); else delete x.desde;
+    aviso(on ? 'Plan activado: se descuenta ' + dinero(cuotaPlan(x)) + ' en los días que quedan.' : 'Plan desactivado: la plata vuelve a tus días.');
+  },
+  pagarPlan(el) {          // pagado / pendiente. Si decís con qué lo pagaste, baja esa cuenta (y vuelve si lo pasás a pendiente)
+    const x = (S.planes || []).find(p => p.id === +el.dataset.i); if (!x) return SIN_GUARDAR;
+    if (x.p) {
+      if (x.pMed && x.pMonto) moverCuenta(x.pMed, +x.pMonto);
+      x.p = false; delete x.pMed; delete x.pMonto; guardar(); dibujar(); return SIN_GUARDAR;
+    }
+    const cuota = cuotaPlan(x), hay = (S.cuentas || []).some(c => Math.abs(+c.m || 0) >= 0.005);
+    const m = crearModal(`<div style="font-weight:700;margin-bottom:6px">¿Con qué pagaste ${escapar(x.n || 'el plan')}?</div>` +
+      `<label>¿Cuánto pagaste?</label><input id="ppm" inputmode="decimal" value="${cuota}">` +
+      (hay ? '<div class="mut" style="font-size:13px;margin:6px 0">Baja esa plata de la cuenta que elijas.</div>' : '') +
+      '<div class="f" style="flex-wrap:wrap;gap:6px;margin:10px 0 0"><button id="ppmp">📲 Mercado Pago</button><button id="ppef">💵 Efectivo</button>' +
+      '<button class="sec" id="ppsin">Solo marcar pagado</button><button class="sec" id="ppno">Cancelar</button></div>', 360);
+    m.onclick = ev => {
+      const id = ev.target.id;
+      if (ev.target === m || id === 'ppno') return m.remove();
+      if (!['ppmp', 'ppef', 'ppsin'].includes(id)) return;
+      const monto = Math.round((aNumero(m.querySelector('#ppm').value) || 0) * 100) / 100;
+      m.remove(); x.p = true;
+      if (id !== 'ppsin' && hay && monto > 0) { x.pMed = id === 'ppef' ? 'ef' : 'mp'; x.pMonto = monto; moverCuenta(x.pMed, -monto); }
+      guardar(); dibujar(); aviso('Plan marcado como pagado 👍');
+    };
+    return SIN_GUARDAR;
   },
 
   /* --- metas --- */
