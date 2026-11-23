@@ -678,23 +678,42 @@ function calcular(S, hoy) {
     const iniFondo = S.fondoDesde ? Math.min(Math.max(numeroDeDia(S.fondoDesde) - numeroDeDia(S.start), 0), dias - 1) : 0;
     /* Retiros del fondo marcados "para gastar" (para:'hoy'): suman al presupuesto del día en que se sacaron.
        Si ese día no se gastan, al cierre vuelven solos al fondo (porque sobran). */
-    const extraRetiro = {};
+    const extraRetiro = {}, extraReparte = {};
     (S.fondoUsos || []).forEach(x => {
       if (x.para === 'cubre') return;
       const k = Math.min(Math.max(numeroDeDia(x.date) - numeroDeDia(S.start), 0), dias - 1);
-      extraRetiro[k] = (extraRetiro[k] || 0) + (+x.amt || 0);
+      if (x.para === 'reparte') {          // v9.9.32: se divide en partes iguales entre ese día y los que quedan
+        const parte = (+x.amt || 0) / Math.max(1, dias - k);
+        for (let j = k; j < dias; j++) { extraRetiro[j] = (extraRetiro[j] || 0) + parte; extraReparte[j] = (extraReparte[j] || 0) + parte; }
+      } else extraRetiro[k] = (extraRetiro[k] || 0) + (+x.amt || 0);
     });
+    /* v9.9.32 · "A fin de mes, repartir lo que me sobra": desde el día S.sobraReparteDia del mes, lo que sobra de cada
+       día cerrado se suma en partes iguales a los días que quedan, en vez de ir al fondo (el último día va al fondo). */
+    let iniReparte = -1;
+    const diaRep = Math.round(+S.sobraReparteDia || 0);
+    if (diaRep >= 1 && diaRep <= 31) {
+      const ini = new Date(numeroDeDia(S.start) * MS_DIA);
+      const conDia = (a, m) => { const largo = new Date(Date.UTC(a, m + 1, 0)).getUTCDate(); return Date.UTC(a, m, Math.min(diaRep, largo)) / MS_DIA; };
+      let obj = conDia(ini.getUTCFullYear(), ini.getUTCMonth());
+      if (obj < numeroDeDia(S.start)) obj = conDia(ini.getUTCFullYear(), ini.getUTCMonth() + 1);
+      const k = Math.round(obj - numeroDeDia(S.start));
+      if (k < dias) iniReparte = k;
+    }
+    const reparteDia = i => iniReparte >= 0 && i >= iniReparte && i < dias - 1;
+    const repartoSobra = {};
     const usosHastaDia = i => suma((S.fondoUsos || []).filter(x => x.para !== 'cubre' &&
       Math.min(Math.max(numeroDeDia(x.date) - numeroDeDia(S.start), 0), dias - 1) <= i), x => +x.amt || 0);
     filas = []; let arrastre = 0, aportesAcum = 0;
     for (let i = 0; i < dias; i++) {
       if (recal && i === recal.day) arrastre = 0;
-      const sin = presupuestoDia(i) + (extraRetiro[i] || 0);
+      const sin = presupuestoDia(i) + (extraRetiro[i] || 0) + (repartoSobra[i] || 0);
       const presupuesto = i <= hoyIdx + 1 ? sin + arrastre : sin;
       const gasto = gastado(i, i);
       const sobra = presupuesto - gasto;
       const previo = i < iniFondo;
-      filas.push({ i, presupuesto, gasto, sobra, aporte: previo ? 0 : (regla === 'fondo' ? sobra : Math.max(0, sobra)) });
+      const reparte = !previo && reparteDia(i);
+      filas.push({ i, presupuesto, gasto, sobra, aporte: previo || reparte ? 0 : (regla === 'fondo' ? sobra : Math.max(0, sobra)) });
+      if (reparte && i < hoyIdx && sobra > 0) { const parte = sobra / (dias - i - 1); for (let j = i + 1; j < dias; j++) repartoSobra[j] = (repartoSobra[j] || 0) + parte; }
       arrastre = previo ? sobra : (regla === 'siguiente' ? Math.min(0, sobra) : 0);
       if (i < hoyIdx) sumarRendDisp(i, aportesAcum, usosHastaDia(i));
       aportesAcum += filas[i].aporte;
@@ -725,13 +744,16 @@ function calcular(S, hoy) {
       rendPend = pend;
     }
     quedaHoyF = filas[hoyIdx].presupuesto - filas[hoyIdx].gasto;
-    mananaF = hayManana ? presupuestoDia(hoyIdx + 1) + (regla === 'siguiente' ? Math.min(0, quedaHoyF) : 0) : null;
+    const reparteHoy = reparteDia(hoyIdx) && hoyIdx >= iniFondo;
+    mananaF = hayManana ? presupuestoDia(hoyIdx + 1) + (extraReparte[hoyIdx + 1] || 0) + (repartoSobra[hoyIdx + 1] || 0) +
+      (reparteHoy ? Math.max(0, quedaHoyF) / (dias - hoyIdx - 1) : 0) + (regla === 'siguiente' ? Math.min(0, quedaHoyF) : 0) : null;
     fondo = {
       activo: true, regla, fondoPrev: previo, ahorroPeriodo, usos,
       total: previo + ahorroPeriodo - usos,
       rend: rendPrev + rendPer, rendPend, totalConRend: previo + ahorroPeriodo - usos + rendPrev + rendPer, rendEnMP: !!S.rendEnMP,
       acumulado: previo + (+S.fondoRetirado || 0) + ahorroPeriodo,     // lo ahorrado en total: nunca baja
-      hoySuma: regla === 'fondo' ? quedaHoyF : Math.max(0, quedaHoyF),
+      hoySuma: reparteHoy ? 0 : (regla === 'fondo' ? quedaHoyF : Math.max(0, quedaHoyF)),
+      reparteHoy, reparteDesde: iniReparte,
       disponible: saldoPeriodo - ahorroPeriodo + usosParaGastar,   // lo retirado para gastar pasa a disponible
     };
   }
@@ -964,7 +986,7 @@ function fraseDeEstado(c, clase) {
    02b · EXPORTAR — Excel (.xlsx) y PDF armados a mano, sin librerías
    (la app tiene que funcionar sin internet). Funciones puras.
    ===================================================================== */
-const VERSION_APP = '9.9.31';
+const VERSION_APP = '9.9.32';
 const aBytes = txt => new TextEncoder().encode(txt);
 const aBase64 = bytes => {
   let b = '';
@@ -1707,7 +1729,8 @@ function programarAvisoReserva(pedirPermiso) {
       let pendiente = resPendiente(c);
       for (let k = 0; k < DIAS_AVISO_RESERVA; k++) {
         const i = c.hoyIdx + k; if (i >= c.dias) break;
-        const sobra = k === 0 ? c.fondo.hoySuma : Math.max(0, c.presupuestoDia(i));
+        const reparte = c.fondo.reparteDesde >= 0 && i >= c.fondo.reparteDesde && i < c.dias - 1;
+        const sobra = k === 0 ? c.fondo.hoySuma : (reparte ? 0 : Math.max(0, c.presupuestoDia(i)));
         pendiente += sobra;
         const cuando = new Date(); cuando.setDate(cuando.getDate() + k); cuando.setHours(hh, mm, 0, 0);
         if (cuando <= new Date() || sobra < 1) continue;
@@ -1855,7 +1878,8 @@ function tarjetaQuedaHoy(c, clase, mensaje, presupuesto, porcentaje) {
     etiquetaRinde(S.rendDispOn) +
     `<div class="bar ${clase}"><i style="width:${porcentaje}%"></i></div>` +
     `<div class="mut">Presupuesto de hoy ${pesos(presupuesto)}. ${c.gastoHoy < 0 ? 'Entradas de hoy: +' + pesos(-c.gastoHoy) : 'Gastaste ' + pesos(c.gastoHoy)}.</div>` +
-    (c.fondo.activo ? `<div class="mut" style="margin-top:4px">Lo que no gastes hoy va a tu fondo: <b class="${c.fondo.hoySuma < 0 ? 'neg' : ''}">${pesosConCentavos(c.fondo.hoySuma)}</b></div>` : '') +
+    (c.fondo.activo && c.fondo.reparteHoy ? (c.quedaHoy >= 1 && c.faltan > 1 ? `<div class="mut" style="margin-top:4px">Lo que no gastes hoy se reparte: <b>+${pesosConCentavos(c.quedaHoy / (c.faltan - 1))}</b> por día en los ${c.faltan - 1} días que quedan</div>` : '') :
+     c.fondo.activo ? `<div class="mut" style="margin-top:4px">Lo que no gastes hoy va a tu fondo: <b class="${c.fondo.hoySuma < 0 ? 'neg' : ''}">${pesosConCentavos(c.fondo.hoySuma)}</b></div>` : '') +
     (c.manana != null ? `<div id="linea-manana" style="margin-top:8px">Mañana tendrás <b class="${c.manana < 0 ? 'neg' : ''}">${pesosConCentavos(c.manana)}</b></div>` : '') +
     (mensaje ? `<div class="${clase}" style="font-weight:600;margin-top:6px">${mensaje}</div>` : '') + '</div>';
 }
@@ -1874,11 +1898,11 @@ function tarjetaFondo(c) {
   const formulario = UI.usandoFondo
     ? '<div style="margin-top:10px;padding:12px;border:1px solid var(--ac);border-radius:10px"><label>¿Cuánto sacás del fondo?</label>' +
       `<input id="fu" inputmode="decimal" placeholder="Monto"><label>¿Para qué?</label><input id="fn" placeholder="Detalle (opcional)">` +
-      '<label>¿Qué hacés con esa plata?</label><select id="fp"><option value="hoy">La voy a gastar hoy (suma a mi límite de hoy)</option><option value="cubre">Cubre gastos que ya hice / cuadrar con el banco (no suma a hoy)</option></select>' +
+      '<label>¿Qué hacés con esa plata?</label><select id="fp"><option value="hoy">La voy a gastar hoy (suma a mi límite de hoy)</option><option value="reparte">La reparto en los días que quedan del mes (${c.faltan} días, con hoy)</option><option value="cubre">Cubre gastos que ya hice / cuadrar con el banco (no suma a hoy)</option></select>' +
       '<div class="f" style="margin:10px 0 0"><button class="sec" data-a="cancelarUsoFondo">Cancelar</button><button data-a="confirmarUsoFondo">Sacar</button></div></div>'
     : '<div class="f" style="margin-top:8px"><button class="sec" data-a="usarFondo">Usar del fondo</button></div>';
   const lista = usos.length
-    ? '<div style="margin-top:8px">' + usos.map((x, k) => `<div class="row"><span>${diaYMes(x.date)} ${escapar(x.note || 'Uso del fondo')}${x.para !== 'cubre' ? ' (para hoy)' : ''}</span><span><b>${dinero(-x.amt)}</b><button class="x" data-a="quitarUsoFondo" data-i="${k}">✕</button></span></div>`).join('') + '</div>'
+    ? '<div style="margin-top:8px">' + usos.map((x, k) => `<div class="row"><span>${diaYMes(x.date)} ${escapar(x.note || 'Uso del fondo')}${x.para === 'reparte' ? ' (repartido en los días que quedan)' : x.para === 'cubre' ? '' : ' (para hoy)'}</span><span><b>${dinero(-x.amt)}</b><button class="x" data-a="quitarUsoFondo" data-i="${k}">✕</button></span></div>`).join('') + '</div>'
     : '';
   return `<div class="card"><div class="mut">Mi fondo de ahorro ${botonOjo()}</div><div class="num">${dinero(f.totalConRend)}</div>` + etiquetaRinde(S.rendOn) +
     `<div class="mut">${detalle}</div>` +
@@ -1896,7 +1920,8 @@ function tarjetaReserva(c) {
   const negativo = pendiente <= -1 ? `<div class="mut" style="color:var(--warn);margin-top:6px">Sacaste del fondo más de lo que tenías sin pasar: retirá ${dinero(-pendiente)} de la reserva para que coincida.</div>` : '';
   return '<div class="card" style="border-color:var(--ac)"><div class="mut">🏦 Para pasar a tu reserva</div>' + (pendiente <= -1 ? '' : linea) + negativo +
     (pendiente >= 1 ? '<div class="f" style="margin-top:10px;flex-wrap:wrap"><a class="bt sec" href="https://www.mercadopago.com.ar/" target="_blank" rel="noopener">Abrir Mercado Pago</a>' +
-      '<button data-a="yaPase">✅ Ya lo pasé</button></div>' : '') + '</div>';
+      '<button data-a="yaPase">✅ Ya lo pasé</button>' +
+      '<button class="sec" data-a="dejarEnDisponible" style="width:100%">💙 Lo dejo en disponible de Mercado Pago</button></div>' : '') + '</div>';
 }
 
 function tarjetaSaldo(c) {
@@ -2347,6 +2372,9 @@ function tarjetaColabora() {
 
 /* v9.9.31 · Novedades: qué trae cada versión (la más nueva arriba) */
 const NOVEDADES = [      // armado con el historial del repositorio de GitHub (desde la 9.0) y lo que contó el autor
+  ['9.9.32', ['🗓️ A fin de mes, repartir lo que me sobra (Ajustes → Fondo de ahorro): desde el día 22, lo que no gastás se suma a los días que quedan, sin pasarlo a la reserva.',
+              '🐷 Usar del fondo: nueva opción "La reparto en los días que quedan del mes".',
+              '💙 En "Para pasar a tu reserva": botón "Lo dejo en disponible de Mercado Pago", para usar el colchón sin tener que tocar "Ya lo pasé".']],
   ['9.9.31', ['💚 Cartel para colaborar con el creador (alias para transferir).', '📋 Esta lista de novedades en Ajustes.']],
   ['9.9.30', ['🔔 Aviso en el teléfono cada noche: cuánto te sobró del día para pasar a tu reserva de Mercado Pago.', '🏦 Cartel "Para pasar a tu reserva" en Hoy, con "Abrir Mercado Pago" y "Ya lo pasé".']],
   ['9.9.29', ['🛠️ Arreglo: el fondo de ahorro ya no arranca en negativo por retiros de un período anterior.']],
@@ -2433,6 +2461,9 @@ function tarjetaModoFondo() {
     `<div class="f"><input type="checkbox" data-f="modoFondo"${on ? ' checked' : ''}><span>Activar el fondo de ahorro</span></div>` +
     (on ? '<label>Si me paso del límite de un día</label><select data-f="fondoExceso">' +
       opcion('siguiente', 'Se descuenta del día siguiente') + opcion('aparte', 'No se descuenta de ningún lado') + '</select>' +
+      `<div class="f" style="margin-top:12px"><input type="checkbox" data-f="sobraReparte"${S.sobraReparteDia > 0 ? ' checked' : ''}><span>A fin de mes, repartir lo que me sobra</span></div>` +
+      '<div class="mut" style="font-size:13px">Hasta el día elegido lo que sobra va al fondo; desde ese día se suma a los días que quedan hasta el cobro, sin pasarlo a la reserva.</div>' +
+      (S.sobraReparteDia > 0 ? `<label>Desde el día del mes</label><input data-f="sobraReparteDia" inputmode="numeric" value="${S.sobraReparteDia}">` : '') +
       `<label>Fondo que ya tenías juntado de antes</label><input type="${campoDinero()}" data-f="fondoPrev" inputmode="decimal" value="${S.fondoPrev || ''}" placeholder="Monto">` +
       `<div class="f" style="margin-top:12px"><input type="checkbox" data-f="resAviso"${S.resAviso === false ? '' : ' checked'}><span>🔔 Avisarme cada noche cuánto pasar a mi reserva de Mercado Pago</span></div>` +
       (S.resAviso === false ? '' : `<label>¿A qué hora?</label><input type="time" data-f="resHora" value="${S.resHora || '22:00'}">`) +
@@ -2624,6 +2655,15 @@ const ACCIONES = {
     catch (_) { aviso('Alias: ' + ALIAS_COLABORA + ' (copialo a mano)'); }
     return SIN_GUARDAR;
   },
+  /* v9.9.32 · El colchón que no pasaste a la reserva se usa: se reparte en los días que quedan (la plata ya está en Mercado Pago) */
+  async dejarEnDisponible() {
+    const c = calcular(S, hoyISO()), monto = Math.round(resPendiente(c) * 100) / 100;
+    if (monto < 1) return SIN_GUARDAR;
+    const porDia = c.faltan > 0 ? monto / c.faltan : monto;
+    if (!(await confirmar('¿Dejar ' + pesos(monto) + ' en tu disponible? Esa plata ya está en tu Mercado Pago: se usa del fondo y se reparte en los días que quedan, unos ' + pesos(porDia) + ' más por día durante ' + c.faltan + ' días.'))) return SIN_GUARDAR;
+    (S.fondoUsos = S.fondoUsos || []).push({ id: Date.now(), date: hoyISO(), amt: monto, note: 'Dejado en disponible de Mercado Pago', para: 'reparte', resBaja: 0, sinMover: true });
+    aviso('Listo: ' + pesos(monto) + ' quedan en tu disponible, repartidos en los días que quedan');
+  },
   async yaPase() {
     const c = calcular(S, hoyISO()), pendiente = Math.round(resPendiente(c));
     const m = crearModal('<div style="font-weight:700;margin-bottom:6px">¿Cuánto pasaste a la reserva?</div>' +
@@ -2730,12 +2770,18 @@ const ACCIONES = {
   confirmarUsoFondo() {
     const monto = aNumero(valorDe('fu'));
     if (!monto) return SIN_GUARDAR;
-    (S.fondoUsos = S.fondoUsos || []).push({ id: Date.now(), date: hoyISO(), amt: monto, note: valorDe('fn').trim(), para: valorDe('fp') === 'cubre' ? 'cubre' : 'hoy' });
-    UI.usandoFondo = false; aviso('Listo: sacaste ' + pesos(monto) + ' del fondo.');
+    const para = ['cubre', 'reparte'].includes(valorDe('fp')) ? valorDe('fp') : 'hoy';
+    /* v9.9.32: la plata sale de la reserva, así que también baja lo "ya pasado" (se guarda cuánto, para poder deshacerlo) */
+    const pasado = +S.resPasado || 0, baja = Math.min(monto, Math.max(0, pasado));
+    (S.fondoUsos = S.fondoUsos || []).push({ id: Date.now(), date: hoyISO(), amt: monto, note: valorDe('fn').trim(), para, resBaja: baja });
+    S.resPasado = Math.round((pasado - baja) * 100) / 100;
+    const c = calcular(S, hoyISO());
+    UI.usandoFondo = false; aviso('Listo: sacaste ' + pesos(monto) + ' del fondo.' + (para === 'reparte' && c.faltan > 0 ? ' Son ' + pesos(monto / c.faltan) + ' más por día.' : ''));
   },
   async quitarUsoFondo(el) {
     if (!(await confirmar('¿Quitar este retiro? El monto vuelve al fondo.'))) return SIN_GUARDAR;
-    S.fondoUsos.splice(+el.dataset.i, 1);
+    const [uso] = S.fondoUsos.splice(+el.dataset.i, 1);
+    if (uso && uso.resBaja) S.resPasado = Math.round(((+S.resPasado || 0) + (+uso.resBaja || 0)) * 100) / 100;
   },
 
   /* --- metas --- */
@@ -2899,6 +2945,8 @@ const CAMBIOS = {
   modoFondo:     (v, el) => { S.modoFondo = el.checked; if (el.checked) S.fondoDesde = hoyISO(); UI.usandoFondo = false; },
   fondoExceso:   v => { S.fondoExceso = ['siguiente', 'fondo', 'aparte'].includes(v) ? v : 'siguiente'; },
   fondoPrev:     v => { S.fondoPrev = aNumero(v); },
+  sobraReparte:  (v, el) => { S.sobraReparteDia = el.checked ? 22 : 0; },
+  sobraReparteDia: v => { const d = Math.round(aNumero(v)); S.sobraReparteDia = d >= 1 ? Math.min(28, d) : 0; },
   rendOn:        (v, el) => { S.rendOn = el.checked; if (el.checked) { S.rendDesde = hoyISO(); S.rendPrev = 0; if (!S.rendTasa) S.rendTasa = 19; } },
   rendTasa:      v => { S.rendTasa = Math.min(300, Math.max(0, +String(v).replace(',', '.').replace(/[^\d.]/g, '') || 0)); },
   rendEnMP:      (v, el) => { S.rendEnMP = el.checked; },
