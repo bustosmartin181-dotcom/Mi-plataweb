@@ -645,11 +645,19 @@ function calcular(S, hoy) {
   const tasaD = Math.min(300, Math.max(0, +S.rendTasa || 0));
   const rendDispActivo = !!S.rendDispOn && tasaD > 0 && !!S.rendDispDesde;
   const rD = tasaD / 100 / 365;
+  /* v9.9.34 · Tasa del día k: cada cambio de tasa vale desde su fecha (los días anteriores siguen con la de antes, como Mercado Pago) */
+  const cambiosTasa = (S.rendTasas || []).filter(x => x && x.d).sort((a, b) => a.d.localeCompare(b.d));
+  const tasaDelDia = k => {
+    if (!cambiosTasa.length) return Math.min(300, Math.max(0, +S.rendTasa || 0));
+    const iso = isoDeNumero(numeroDeDia(S.start) + k);
+    let c = null; for (const x of cambiosTasa) if (x.d <= iso) c = x;
+    return Math.min(300, Math.max(0, c ? +c.t || 0 : +cambiosTasa[0].a || 0));
+  };
   const kD0 = rendDispActivo ? Math.max(0, numeroDeDia(S.rendDispDesde) - numeroDeDia(S.start)) : 0;
   let rendDisp = 0, pendD = 0;
   const sumarRendDisp = (k, aportesPrevios, usosHasta) => {
     if (!rendDispActivo || k < kD0) return;
-    const y = Math.max(0, disp - gastado(-1e9, k - 1) - aportesPrevios + usosHasta) * rD;
+    const y = Math.max(0, disp - gastado(-1e9, k - 1) - aportesPrevios + usosHasta) * (cambiosTasa.length ? tasaDelDia(k) / 100 / 365 : rD);
     pendD += y;
     if (esHabil(numeroDeDia(S.start) + k + 1)) {
       descuentos.push({ amt: pendD, desde: isoDeNumero(numeroDeDia(S.start) + k + 1) });
@@ -738,7 +746,7 @@ function calcular(S, hoy) {
         if (k > 0) acum += filas[k - 1].aporte;
         if (k < k0) continue;
         const usado = suma((S.fondoUsos || []).filter(x => idxUso(x) <= k), x => +x.amt || 0);
-        pend += Math.max(0, previo + acum - usado + rendPrev + rendPer) * r;
+        pend += Math.max(0, previo + acum - usado + rendPrev + rendPer) * (cambiosTasa.length ? tasaDelDia(k) / 100 / 365 : r);
         if (esHabil(numeroDeDia(S.start) + k + 1)) { rendPer += pend; pend = 0; }
       }
       rendPend = pend;
@@ -986,7 +994,7 @@ function fraseDeEstado(c, clase) {
    02b · EXPORTAR — Excel (.xlsx) y PDF armados a mano, sin librerías
    (la app tiene que funcionar sin internet). Funciones puras.
    ===================================================================== */
-const VERSION_APP = '9.9.33';
+const VERSION_APP = '9.9.34';
 const aBytes = txt => new TextEncoder().encode(txt);
 const aBase64 = bytes => {
   let b = '';
@@ -2054,10 +2062,25 @@ function tarjetaRecalibrar(c) {
     (c.recal ? '<button class="sec" data-a="quitarRecalibracion">Quitar</button>' : '') + '</div></div>';
 }
 
+/* v9.9.34 · Saldo corrido: después de cada gasto (o entrada), cuánta plata te quedaba en cuentas (Mis cuentas).
+   Arranca en el saldo de hoy y va para atrás deshaciendo cada movimiento, como un resumen del banco. Vacío si no cargaste cuentas. */
+function saldoCorrido() {
+  const cc = conciliar(S, calcular(S, hoyISO()));
+  if (!cc.hayCuentas) return {};
+  const salida = {}; let saldo = cc.total;
+  [...S.spent].filter(e => !e.meta).sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id).forEach(m => {
+    salida[m.id] = saldo;
+    saldo -= -(+m.amt || 0) + (m.dev === 2 ? (+m.amt || 0) : 0);
+  });
+  return salida;
+}
+const pastillaQueda = q => q == null ? '' : `<br><small style="display:inline-block;margin-top:3px;padding:1px 8px;border-radius:99px;font-weight:600;${q >= 0 ? 'color:var(--ok);background:color-mix(in srgb, var(--ok) 14%, transparent)' : 'color:var(--warn);background:color-mix(in srgb, var(--warn) 14%, transparent)'}">${q >= 0 ? 'Te quedan ' + dinero(q) : 'Te pasaste ' + dinero(-q)}</small>`;
+
 function tarjetaGastosAnotados() {
+  const corrido = saldoCorrido();
   const todos = [...S.spent].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
   const lista = UI.verTodos ? todos.slice(0, 60) : todos.slice(0, 5);     // en Hoy se ven los últimos 5
-  const fila = e => `<div class="row"><span style="display:flex;align-items:center">${chipCategoria(e.cat)}<span>${escapar(e.note || e.cat || 'Gasto')}<br><small class="mut">${diaYMes(e.date)}</small></span></span><span style="text-align:right">${montoMovimiento(e)}` +
+  const fila = e => `<div class="row"><span style="display:flex;align-items:center">${chipCategoria(e.cat)}<span>${escapar(e.note || e.cat || 'Gasto')}<br><small class="mut">${diaYMes(e.date)}</small>${pastillaQueda(corrido[e.id])}</span></span><span style="text-align:right">${montoMovimiento(e)}` +
     `<button class="x" data-a="editar" data-i="${e.id}">✎</button><button class="x" data-a="borrar" data-i="${e.id}">✕</button></span></div>`;
   return '<div class="card"><h2>Gastos y entradas</h2>' + (lista.length ? lista.map(fila).join('') : '<div class="mut">Todavía no anotaste gastos.</div>') +
     (todos.length > 5 ? `<button class="sec" data-a="verTodos" style="width:100%;margin-top:10px">${UI.verTodos ? 'Ver solo los últimos 5' : 'Ver todos (' + todos.length + ')'}</button>` : '') + '</div>';
@@ -2407,6 +2430,9 @@ function tarjetaColabora() {
 
 /* v9.9.31 · Novedades: qué trae cada versión (la más nueva arriba) */
 const NOVEDADES = [      // armado con el historial del repositorio de GitHub (desde la 9.0) y lo que contó el autor
+  ['9.9.34', ['📈 Cuando cambia la tasa, vale desde ese día: los días que ya pasaron no se recalculan (como en Mercado Pago).',
+              '📈 Tasa de Mercado Pago automática: la app baja sola la TNA de Mercado Fondo (datos de la CNV). Se apaga si escribís la tasa a mano.',
+              '🧾 Saldo corrido: debajo de cada gasto ves cuánta plata te quedaba en tus cuentas.']],
   ['9.9.33', ['💵 Al anotar elegís "Pagué con: Mercado Pago o Efectivo" (y en las entradas, "Me pagaron con").',
               '👛 Mis cuentas se mueve sola: cada gasto baja Mercado Pago o Efectivo según con qué pagaste (si ya cargaste tus saldos).']],
   ['9.9.32', ['🗓️ A fin de mes, repartir lo que me sobra (Ajustes → Fondo de ahorro): desde el día 22, lo que no gastás se suma a los días que quedan, sin pasarlo a la reserva.',
@@ -2507,6 +2533,37 @@ function tarjetaModoFondo() {
       `<label>Ya pasé a la reserva (en total)</label><input type="${campoDinero()}" data-f="resPasado" inputmode="decimal" value="${S.resPasado || ''}" placeholder="0">` : '') +
     '</div>';
 }
+/* v9.9.34 · Cambia la tasa desde HOY: los días que ya pasaron siguen con la de antes. auto=false: la escribiste a mano */
+function cambiarTasa(nueva, auto) {
+  const vieja = +S.rendTasa || 0, hoy = hoyISO(), l = (S.rendTasas = S.rendTasas || []);
+  const iHoy = l.findIndex(x => x.d === hoy);
+  if (iHoy >= 0) l[iHoy].t = nueva;
+  else if (Math.abs(nueva - vieja) >= 0.001) l.push({ d: hoy, t: nueva, a: vieja });
+  if (l.length > 90) S.rendTasas = l.slice(-90);
+  S.rendTasa = nueva;
+  if (auto === false) S.rendTasaAuto = false;
+}
+/* v9.9.34 · Tasa de Mercado Pago automática: la TNA de "Mercado Fondo - Clase A" (datos de la CNV, publicados gratis
+   por ArgentinaDatos). Se revisa como mucho cada 6 horas. Se apaga si escribís la tasa a mano. */
+async function revisarTasaMP() {
+  if (S.demo || !(S.rendOn || S.rendDispOn) || S.rendTasaAuto === false) return;
+  try {
+    const ultima = +localStorage.getItem('miplata_tasa_mp') || 0;
+    if (Date.now() - ultima < 6 * 3600000) return;
+    const r = await fetch('https://api.argentinadatos.com/v1/finanzas/fci/comparatasas', { headers: { Accept: 'application/json' } });
+    if (!r.ok) return;
+    const fondo = ((await r.json()).fondos || []).find(f => { const n = String(f.nombre || '').toLowerCase(); return n.startsWith('mercado fondo') && n.includes('clase a'); });
+    const tna = fondo && fondo.rendimientos && +fondo.rendimientos.tnaEstimada;
+    if (!(tna > 0 && tna <= 300)) return;
+    localStorage.setItem('miplata_tasa_mp', String(Date.now()));
+    const t = Math.round(tna * 10) / 10;
+    if (Math.abs(t - (+S.rendTasa || 0)) >= 0.05) {
+      cambiarTasa(t); guardar(); dibujar();
+      aviso('Mercado Pago ahora rinde ' + String(t).replace('.', ',') + '%: tasa actualizada');
+    }
+  } catch (_) {}
+}
+
 function tarjetaRendimiento() {
   const hay = !!(S.rendOn || S.rendDispOn);
   return '<div class="card"><h2>Rendimiento de Mercado Pago</h2>' +
@@ -2514,7 +2571,9 @@ function tarjetaRendimiento() {
     `<div class="f"><input type="checkbox" data-f="rendDispOn"${S.rendDispOn ? ' checked' : ''}><span>Sumar rendimiento a mi dinero disponible</span></div>` +
     (S.modoFondo ? `<div class="f"><input type="checkbox" data-f="rendOn"${S.rendOn ? ' checked' : ''}><span>Sumar rendimiento a mi fondo de ahorro</span></div>` : '') +
     (hay ? '<label>Tasa anual (TNA) en %</label>' +
-      `<input inputmode="decimal" data-f="rendTasa" value="${String(S.rendTasa || '').replace('.', ',')}" placeholder="Ej: 19">` : '') +
+      `<input inputmode="decimal" data-f="rendTasa" value="${String(S.rendTasa || '').replace('.', ',')}" placeholder="Ej: 19">` +
+      `<div class="f" style="margin-top:8px"><input type="checkbox" data-f="rendTasaAuto"${S.rendTasaAuto === false ? '' : ' checked'}><span>Actualizar la tasa sola</span></div>` +
+      '<div class="mut" style="font-size:13px">La baja de internet: la TNA de Mercado Fondo (donde rinde tu plata de Mercado Pago), publicada por la CNV. Si escribís una tasa a mano, se apaga. Cada cambio vale desde ese día: los días que ya pasaron no se recalculan.</div>' : '') +
     (S.rendOn && S.modoFondo ? `<div class="f" style="margin-top:8px"><input type="checkbox" data-f="rendEnMP"${S.rendEnMP ? ' checked' : ''}><span>Mi fondo ya está en Mercado Pago</span></div>` +
       '<div class="mut" style="margin-top:4px">Si lo marcás, el rendimiento del fondo también cuenta al comparar con tus cuentas.</div>' : '') +
     '</div>';
@@ -2994,7 +3053,8 @@ const CAMBIOS = {
   sobraReparte:  (v, el) => { S.sobraReparteDia = el.checked ? 22 : 0; },
   sobraReparteDia: v => { const d = Math.round(aNumero(v)); S.sobraReparteDia = d >= 1 ? Math.min(28, d) : 0; },
   rendOn:        (v, el) => { S.rendOn = el.checked; if (el.checked) { S.rendDesde = hoyISO(); S.rendPrev = 0; if (!S.rendTasa) S.rendTasa = 19; } },
-  rendTasa:      v => { S.rendTasa = Math.min(300, Math.max(0, +String(v).replace(',', '.').replace(/[^\d.]/g, '') || 0)); },
+  rendTasa:      v => { cambiarTasa(Math.min(300, Math.max(0, +String(v).replace(',', '.').replace(/[^\d.]/g, '') || 0)), false); },
+  rendTasaAuto:  (v, el) => { S.rendTasaAuto = el.checked; if (el.checked) { try { localStorage.removeItem('miplata_tasa_mp'); } catch (_) {} setTimeout(revisarTasaMP, 300); } },
   rendEnMP:      (v, el) => { S.rendEnMP = el.checked; },
   rendDispOn:    (v, el) => { S.rendDispOn = el.checked; if (el.checked) { S.rendDispDesde = hoyISO(); if (!S.rendTasa) S.rendTasa = 19; } },
   aviso:         v => { S.aviso = Math.min(100, Math.max(0, aNumero(v))); },
@@ -3378,6 +3438,7 @@ function iniciar() {
   if (S.modoFondo) programarAvisoReserva(false);
   actualizarWidgetResumen();
   iniciarNube().then(() => cerrarDias());
+  revisarTasaMP();
   programarCierreNocturno();
   reiniciarInactividad();
   if (CONFIG.sw && 'serviceWorker' in navigator)
