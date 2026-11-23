@@ -986,7 +986,7 @@ function fraseDeEstado(c, clase) {
    02b · EXPORTAR — Excel (.xlsx) y PDF armados a mano, sin librerías
    (la app tiene que funcionar sin internet). Funciones puras.
    ===================================================================== */
-const VERSION_APP = '9.9.32';
+const VERSION_APP = '9.9.33';
 const aBytes = txt => new TextEncoder().encode(txt);
 const aBase64 = bytes => {
   let b = '';
@@ -1221,6 +1221,7 @@ const UI = {
   categoria: '',         // categoría elegida para el gasto que se está anotando
   editando: null,        // id del gasto que se está editando
   modoAnotar: 'gasto',   // 'gasto' o 'entrada'
+  medio: 'mp',           // v9.9.33: con qué se pagó: 'mp' (Mercado Pago) o 'ef' (efectivo)
   borrador: {},          // monto y detalle que llegan por voz o foto
   ajustePendiente: null, // diferencia de cuentas esperando confirmación
   mostrarDinero: false,  // ¿se muestran los números del mes?
@@ -1961,7 +1962,7 @@ function tarjetaCuentas(c) {
   return '<div class="card"><h2>Mis cuentas</h2>' + filas + resumenFondo + comparacion +
     '<div class="f" style="margin-top:8px;flex-wrap:wrap"><button class="sec" data-a="agregarCuenta">Agregar cuenta</button>' +
     (cc.hayCuentas ? '<button data-a="ajustarCuentas">Ajustar con las cuentas</button>' : '') + '</div>' + pendiente + recomposiciones +
-    '<div class="mut" style="font-size:13px;margin-top:6px">Las cuentas tildadas cuentan. Lo que apartaste para tus metas se considera dentro de ellas. Destildá, por ejemplo, la plata de reservas.</div></div>';
+    '<div class="mut" style="font-size:13px;margin-top:6px">Mercado Pago y Efectivo bajan solos con cada gasto que anotás (y suben con cada entrada), según con qué pagaste. Cargá el saldo real de vez en cuando para controlar. Las cuentas tildadas cuentan. Lo que apartaste para tus metas se considera dentro de ellas. Destildá, por ejemplo, la plata de reservas.</div></div>';
 }
 
 function tarjetaAnotarGasto(editado, hoy) {
@@ -1982,10 +1983,13 @@ function tarjetaAnotarGasto(editado, hoy) {
   const tilde = entrada ? '' :
     `<label class="mut" style="display:flex;align-items:center;gap:8px;margin:2px 0 10px;font-size:14px"><input type="checkbox" id="dv" ${devuelven ? 'checked' : ''}>🔁 Me lo devuelven (compré para otros)</label>`;
   const titulo = entrada ? (editado ? 'Editar entrada' : 'Anotar entrada') : (editado ? 'Editar gasto' : 'Anotar gasto');
+  const medio = '<div class="mut" style="font-size:13px;margin:2px 0 4px">' + (entrada ? 'Me pagaron con' : 'Pagué con') + '</div><div class="f" style="gap:6px;margin-bottom:8px">' +
+    `<button class="chip${UI.medio === 'ef' ? '' : ' on'}" data-a="medio" data-v="mp" style="flex:1">📲 Mercado Pago</button>` +
+    `<button class="chip${UI.medio === 'ef' ? ' on' : ''}" data-a="medio" data-v="ef" style="flex:1">💵 Efectivo</button></div>`;
   return `<div class="card" id="tarjeta-anotar"><h2>${titulo}</h2>` + modos +
     (entrada ? '<div class="mut" style="margin:-2px 0 8px;font-size:13px">Plata que te entra ese día: te la devuelven, te pagan algo, etc. Suma a tu día.</div>' : '') +
     `<div class="f"><input id="am" inputmode="decimal" placeholder="Monto" value="${escapar(monto)}"><input id="nt" placeholder="${entrada ? '¿De quién? (ej: Orlando)' : 'Detalle'}" value="${escapar(detalle)}"></div>` +
-    categorias + atajos + tilde +
+    categorias + atajos + tilde + medio +
     `<div class="f"><input id="dt" type="date" value="${fecha}"></div>` +
     `<button data-a="anotar" style="width:100%">${editado ? 'Guardar cambios' : titulo}</button>` +
     (editado ? '<button class="sec" data-a="cancelarEdicion" style="width:100%;margin-top:8px">Cancelar</button>' : '') + '</div>';
@@ -1993,11 +1997,42 @@ function tarjetaAnotarGasto(editado, hoy) {
 
 /* Cómo se ve el monto de un movimiento: entradas en verde con +, lo que te deben marcado */
 function montoMovimiento(e) {
-  if (e.amt < 0) return `<b style="color:var(--ok)">+${pesos(-e.amt)}</b>`;
+  const ef = e.med === 'ef' ? '<br><small class="mut">💵 efectivo</small>' : '';
+  if (e.amt < 0) return `<b style="color:var(--ok)">+${pesos(-e.amt)}</b>` + ef;
   if (e.dev === 1) return `<b>${pesos(e.amt)}</b><br><small style="color:var(--warn)">🔁 te lo deben</small>`;
   if (e.dev === 2) return `<b class="mut" style="text-decoration:line-through">${pesos(e.amt)}</b><br><small style="color:var(--ok)">✅ devuelto</small>`;
-  return `<b>${pesos(e.amt)}</b>`;
+  return `<b>${pesos(e.amt)}</b>` + ef;
 }
+
+/* v9.9.33 · Mis cuentas se mueve sola con cada gasto o entrada: lo pagado o cobrado en efectivo mueve la cuenta
+   "Efectivo"; lo demás, Mercado Pago. Solo si ya cargaste tus saldos (alguna cuenta distinta de cero). */
+function efectoEnCuentas(spent) {
+  let mp = 0, ef = 0;
+  (spent || []).forEach(x => {
+    if (x.meta) return;
+    const amt = +x.amt || 0;
+    if (x.med === 'ef') ef -= amt; else mp -= amt;
+    if (x.dev === 2) { if ((x.cobMed || x.med) === 'ef') ef += amt; else mp += amt; }
+  });
+  return [mp, ef];
+}
+function moverCuentasPorGastos(antes) {
+  const l = S.cuentas;
+  if (!l || !l.some(c => Math.abs(+c.m || 0) >= 0.005)) return;
+  const [mp1, ef1] = efectoEnCuentas(S.spent), dMp = mp1 - antes[0], dEf = ef1 - antes[1];
+  const nombre = c => String(c.n || '').toLowerCase();
+  const r2 = v => Math.round(v * 100) / 100;
+  if (Math.abs(dMp) >= 0.005) {
+    let i = l.findIndex(c => nombre(c).includes('mercado'));
+    if (i < 0) i = l.findIndex(c => !c.x && !nombre(c).includes('efectivo') && !nombre(c).includes('reserva'));
+    if (i >= 0) l[i].m = r2((+l[i].m || 0) + dMp);
+  }
+  if (Math.abs(dEf) >= 0.005) {
+    const i = l.findIndex(c => nombre(c).includes('efectivo'));
+    if (i >= 0) l[i].m = r2((+l[i].m || 0) + dEf); else l.push({ n: 'Efectivo', m: r2(dEf) });
+  }
+}
+const ACCIONES_QUE_MUEVEN_CUENTAS = ['anotar', 'borrar', 'cobrado', 'noPagaron'];
 
 /* Lista "Me deben": compras para otros que todavía no te pagaron */
 function tarjetaMeDeben() {
@@ -2372,6 +2407,8 @@ function tarjetaColabora() {
 
 /* v9.9.31 · Novedades: qué trae cada versión (la más nueva arriba) */
 const NOVEDADES = [      // armado con el historial del repositorio de GitHub (desde la 9.0) y lo que contó el autor
+  ['9.9.33', ['💵 Al anotar elegís "Pagué con: Mercado Pago o Efectivo" (y en las entradas, "Me pagaron con").',
+              '👛 Mis cuentas se mueve sola: cada gasto baja Mercado Pago o Efectivo según con qué pagaste (si ya cargaste tus saldos).']],
   ['9.9.32', ['🗓️ A fin de mes, repartir lo que me sobra (Ajustes → Fondo de ahorro): desde el día 22, lo que no gastás se suma a los días que quedan, sin pasarlo a la reserva.',
               '🐷 Usar del fondo: nueva opción "La reparto en los días que quedan del mes".',
               '💙 En "Para pasar a tu reserva": botón "Lo dejo en disponible de Mercado Pago", para usar el colchón sin tener que tocar "Ya lo pasé".']],
@@ -2614,7 +2651,8 @@ const ACCIONES = {
     if (!monto) return SIN_GUARDAR;
     const entrada = UI.modoAnotar === 'entrada', marca = document.getElementById('dv');
     const gasto = { date: valorDe('dt') || hoyISO(), amt: entrada ? -Math.abs(monto) : Math.abs(monto), note: valorDe('nt'),
-                    cat: entrada ? undefined : (UI.categoria || undefined), dev: (!entrada && marca && marca.checked) ? 1 : undefined };
+                    cat: entrada ? undefined : (UI.categoria || undefined), dev: (!entrada && marca && marca.checked) ? 1 : undefined,
+                    med: UI.medio === 'ef' ? 'ef' : undefined };
     if (estaCerrado(S, gasto.date) && !(await confirmar('Ese día ya está cerrado. ¿Anotarlo igual?'))) return SIN_GUARDAR;
     if (UI.editando) {
       const existente = S.spent.find(e => e.id === UI.editando);
@@ -2623,12 +2661,19 @@ const ACCIONES = {
         Object.assign(existente, gasto);
         if (!existente.dev) delete existente.dev;
         if (!existente.cat) delete existente.cat;
+        if (!existente.med) delete existente.med;
       }
       UI.editando = null;
-    } else { const nuevo = { id: Date.now(), ...gasto }; if (!nuevo.dev) delete nuevo.dev; if (!nuevo.cat) delete nuevo.cat; S.spent.push(nuevo); }
+    } else { const nuevo = { id: Date.now(), ...gasto }; if (!nuevo.dev) delete nuevo.dev; if (!nuevo.cat) delete nuevo.cat; if (!nuevo.med) delete nuevo.med; S.spent.push(nuevo); }
     if (entrada) aviso('Entrada anotada: +' + pesos(Math.abs(monto)));
     else if (gasto.dev) aviso('Anotado en "Me deben". No te baja el límite del día.');
-    UI.borrador = {}; UI.categoria = ''; UI.modoAnotar = 'gasto';
+    UI.borrador = {}; UI.categoria = ''; UI.modoAnotar = 'gasto'; UI.medio = 'mp';
+  },
+  medio(el) {          // v9.9.33: Mercado Pago o Efectivo, sin perder lo que ya se escribió
+    const marca = document.getElementById('dv');
+    UI.borrador = { amt: valorDe('am'), note: valorDe('nt'), date: valorDe('dt'), dev: marca ? marca.checked : undefined };
+    UI.medio = el.dataset.v === 'ef' ? 'ef' : 'mp';
+    dibujar(); return SIN_GUARDAR;
   },
   categoria(el) {      // elegir o quitar la categoría sin perder lo que ya se escribió
     const marca = document.getElementById('dv');
@@ -2640,9 +2685,10 @@ const ACCIONES = {
     const gasto = S.spent.find(e => e.id === +el.dataset.i);
     UI.editando = +el.dataset.i; UI.borrador = {}; UI.categoria = (gasto && gasto.cat) || '';
     UI.modoAnotar = gasto && gasto.amt < 0 ? 'entrada' : 'gasto';
+    UI.medio = gasto && gasto.med === 'ef' ? 'ef' : 'mp';
     dibujar(); document.getElementById('am').focus(); return SIN_GUARDAR;
   },
-  cancelarEdicion() { UI.editando = null; UI.borrador = {}; UI.categoria = ''; UI.modoAnotar = 'gasto'; dibujar(); return SIN_GUARDAR; },
+  cancelarEdicion() { UI.editando = null; UI.borrador = {}; UI.categoria = ''; UI.modoAnotar = 'gasto'; UI.medio = 'mp'; dibujar(); return SIN_GUARDAR; },
   modoAnotar(el) {      // cambiar entre Gasto y Entrada sin perder lo que ya se escribió
     UI.borrador = { amt: valorDe('am'), note: valorDe('nt'), date: valorDe('dt') };
     UI.modoAnotar = el.dataset.v === 'entrada' ? 'entrada' : 'gasto';
@@ -3013,7 +3059,9 @@ async function ejecutar(accion, elemento, autorizado) {
   }
   const hacer = ACCIONES[accion];
   if (!hacer) return;
+  const antes = ACCIONES_QUE_MUEVEN_CUENTAS.includes(accion) ? efectoEnCuentas(S.spent) : null;
   if (await hacer(elemento) === SIN_GUARDAR) return;
+  if (antes && !S.demo) moverCuentasPorGastos(antes);
   guardar(); dibujar();
   if (accion === 'anotar') alertaDeLimite();
 }
